@@ -37,6 +37,9 @@ a{color:var(--blue)}
 .hdr{background:var(--ink);color:#fff;padding:4px 16px 16px}
 .hdr-row{display:flex;align-items:center;gap:11px}
 .burger{background:none;border:0;padding:11px 12px 8px;margin:-8px 0;color:#fff;cursor:pointer}
+.tbback{display:none;background:none;border:0;padding:11px 12px 8px;margin:-8px 0;color:#fff;cursor:pointer}
+body.detail .burger{display:none}
+body.detail .tbback{display:block}
 .mark{width:28px;height:28px;border-radius:4px;background:var(--blue);display:grid;place-items:center;font-family:var(--f-disp);font-weight:800;font-size:12px;color:#fff}
 .hdr-name{font-family:var(--f-disp);font-weight:800;font-size:13.5px}
 .hdr-crumb{font-family:var(--f-mono);font-size:11px;letter-spacing:.12em;color:#8CA5B0;text-transform:uppercase;margin-top:1px}
@@ -74,6 +77,12 @@ a{color:var(--blue)}
 .chips{display:flex;flex-wrap:wrap;gap:8px}
 .citychip{border:1px solid var(--line);background:var(--card);border-radius:999px;padding:12px 16px;font-size:13.5px;font-weight:600;color:var(--ink);min-height:44px}
 .citychip:active{border-color:var(--blue);color:var(--blue)}
+.rowlist{background:var(--card);border:1px solid var(--line);border-radius:12px;overflow:hidden;margin-bottom:12px}
+.rowitem{display:flex;align-items:center;gap:12px;width:100%;background:none;border:0;border-bottom:1px solid var(--line2);padding:13px 16px;font-size:15px;font-weight:600;color:var(--ink);text-align:left;cursor:pointer;min-height:52px}
+.rowitem:last-child{border-bottom:0}
+.rowitem:active{background:var(--blue-soft)}
+.rmeta{margin-left:auto;display:flex;align-items:center;gap:10px;color:var(--mute);font-weight:400;font-size:13.5px;flex:none}
+.tagchip{display:inline-block;border:1px solid var(--line2);background:var(--paper);border-radius:999px;padding:6px 12px;font-size:13.5px;color:var(--ink2)}
 .fbar{display:flex;gap:8px;margin-bottom:16px}
 .fbar input{flex:1;padding:12px;border:1px solid var(--line);border-radius:8px;background:var(--card)}
 .fbar input:focus{outline:2px solid var(--blue);outline-offset:-1px}
@@ -121,6 +130,7 @@ a{color:var(--blue)}
 <div class="phone">
   <div class="topbar">
     <div class="hdr-row">
+      <button class="tbback" id="tbBack" aria-label="Back"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg></button>
       <button class="burger" onclick="openDrawer()" aria-label="Menu"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg></button>
       <div class="mark">AK</div>
       <div>
@@ -267,6 +277,8 @@ function route(){
   var item=NAV.filter(function(n){return n.v===v;})[0];
   $('scr-title').textContent=item?item.t:(arg||v); $('scr-sub').textContent=item?(SUB[v]||''):'';
   var navKey=(v==='city')?'cities':v;
+  DETAIL_PARENT=(v==='city'&&arg)?'cities':((v==='crime'&&arg)?'crime':null);
+  document.body.classList.toggle('detail', !!DETAIL_PARENT);
   $('navlist').querySelectorAll('.dr-item').forEach(function(b){ b.classList.toggle('on', b.dataset.v===navKey); });
   $('tabbar').querySelectorAll('button[data-v]').forEach(function(b){ b.classList.toggle('on', b.dataset.v===navKey); });
   $('content').innerHTML=skel(4);
@@ -352,27 +364,25 @@ function renderCities(){
   }).sort(function(a,b){return a.city.toLowerCase()<b.city.toLowerCase()?-1:1;});
   var tot=0; rows.forEach(function(c){tot+=(c.count||0);});
   $('cityCount').textContent=rows.length+(rows.length===1?' city':' cities')+' · '+tot+(tot===1?' project':' projects');
-  $('cityGrid').innerHTML=rows.length?'<div class="chips">'+rows.map(function(c){
+  $('cityGrid').innerHTML=rows.length?'<div class="rowlist">'+rows.map(function(c){
     var f=focusCount(c.city);
-    var tag=f?'<span style="color:var(--ochre);font-weight:700">'+ico('star',12)+' '+f+'</span>':'<span style="color:var(--mute)">'+(c.count||0)+'</span>';
-    return '<button class="citychip" data-c="'+esc(c.city)+'" style="display:flex;gap:8px;align-items:center">'+esc(c.city)+' '+tag+'</button>';
+    var meta=(f?'<span style="color:var(--ochre);font-weight:600">'+ico('star',12)+' '+f+'</span>':'')+'<span>'+(c.count||0)+'</span>'+ico('chev',14);
+    return '<button class="rowitem" data-c="'+esc(c.city)+'">'+esc(c.city)+'<span class="rmeta">'+meta+'</span></button>';
   }).join('')+'</div>':'<div class="empty">No cities match'+(q?' “'+esc(q)+'”':'')+'.</div>';
-  $('cityGrid').querySelectorAll('.citychip').forEach(function(b){ b.addEventListener('click',function(){ go('city', b.dataset.c); }); });
+  $('cityGrid').querySelectorAll('.rowitem').forEach(function(b){ b.addEventListener('click',function(){ go('city', b.dataset.c); }); });
 }
-function backBtn(view,label){ return '<button class="lnk" onclick="go(\''+view+'\')" style="margin-bottom:12px">'+ico('back',14)+' '+esc(label)+'</button>'; }
 function loadCityDetail(name){
   if(!name){ go('cities'); return; }
-  var back=backBtn('cities','All cities');
   cachedCall('city',{name:name}).then(function(d){
     var rows=(d&&d.rows)||[];
-    if(!rows.length){ $('content').innerHTML=back+'<div class="empty">No projects for '+esc(name)+'.</div>'; return; }
+    if(!rows.length){ $('content').innerHTML='<div class="empty">No projects for '+esc(name)+'.</div>'; return; }
     var focus=rows.filter(function(p){return /focus/i.test(p.status||'');}), rest=rows.filter(function(p){return !/focus/i.test(p.status||'');});
     var ordered=focus.concat(rest);
-    $('content').innerHTML=back+stamp(d)+'<div class="sec-h">'+esc(name)+' — '+rows.length+' projects</div>'+ordered.map(function(p){
+    $('content').innerHTML=stamp(d)+'<div class="sec-h">'+esc(name)+' — '+rows.length+' projects</div>'+ordered.map(function(p){
       var foc=/focus/i.test(p.status||'');
       return '<div class="card">'+(foc?'<span class="pill focus">Focus</span>':'')+'<div class="card-t">'+esc(p.name||p.project||'Project')+'</div>'+(p.status&&!foc?'<div class="card-s">'+esc(p.status)+'</div>':'')+'<div class="lnkrow">'+linkBtn('Builder',p.broker_url)+linkBtn('Drive',p.drive_url)+linkBtn('Website',p.website_url)+'</div></div>';
     }).join('');
-  }).catch(function(){ $('content').innerHTML=back+'<div class="err">Could not load '+esc(name)+'.</div>'; });
+  }).catch(function(){ $('content').innerHTML='<div class="err">Could not load '+esc(name)+'.</div>'; });
 }
 
 var AL_DATA=[], alSection='all', alQ='';
@@ -514,21 +524,20 @@ function loadCrime(slug){
   cachedCall('crimecities').then(function(d){
     var cities=(d&&(d.cities||d.rows))||[];
     var list=cities.map(function(c){return c.slug?c:{slug:String(c).toLowerCase(),name:c};});
-    $('content').innerHTML='<div class="card"><div class="card-s">Pick a city to see its recorded crime figures.</div></div><div class="chips" id="crimechips"></div>';
-    $('crimechips').innerHTML=list.map(function(c){return '<button class="citychip" data-s="'+esc(c.slug)+'">'+esc(c.name||c.slug)+'</button>';}).join('')||'<div class="empty">No cities.</div>';
-    $('crimechips').querySelectorAll('.citychip').forEach(function(b){ b.addEventListener('click',function(){ go('crime', b.dataset.s); }); });
+    $('content').innerHTML='<div class="card"><div class="card-s">Pick a city to see its recorded crime figures.</div></div><div id="crimechips"></div>';
+    $('crimechips').innerHTML=list.length?'<div class="rowlist">'+list.map(function(c){return '<button class="rowitem" data-s="'+esc(c.slug)+'">'+esc(c.name||c.slug)+'<span class="rmeta">'+ico('chev',14)+'</span></button>';}).join('')+'</div>':'<div class="empty">No cities.</div>';
+    $('crimechips').querySelectorAll('.rowitem').forEach(function(b){ b.addEventListener('click',function(){ go('crime', b.dataset.s); }); });
   }).catch(fail);
 }
 function fmtN(n){ n=Number(n)||0; return n.toLocaleString('en-US'); }
 function loadCrimeDetail(slug){
   var label=String(slug).replace(/[-_]+/g,' ').replace(/\b\w/g,function(c){return c.toUpperCase();});
   $('scr-title').textContent=label;
-  var back=backBtn('crime','All cities');
   cachedCall('crime',{slug:slug}).then(function(d){
-    if(!d||d.ok===false){ $('content').innerHTML=back+'<div class="err">'+esc((d&&d.error)||'No data.')+'</div>'; return; }
+    if(!d||d.ok===false){ $('content').innerHTML='<div class="err">'+esc((d&&d.error)||'No data.')+'</div>'; return; }
     var c=d.city||{};
-    if(!c.count){ $('content').innerHTML=back+'<div class="sec-h">'+esc(label)+'</div>'+genCard(d.summary||d.totals||d); return; }
-    var h=back+stamp(d);
+    if(!c.count){ $('content').innerHTML='<div class="sec-h">'+esc(label)+'</div>'+genCard(d.summary||d.totals||d); return; }
+    var h=stamp(d);
     h+='<div class="card"><div class="card-t">'+esc(c.name||label)+(c.province?' · '+esc(c.province):'')+'</div><div class="card-s">'+fmtN(c.count)+' recorded incidents'+(c.year_min?' · '+esc(c.year_min)+'–'+esc(c.year_max):'')+'</div>'+kv('Violent',fmtN(c.violent_count))+'</div>';
     var wins=(d.win&&d.win.windows)||{};
     var order=[['24h','Last 24 hours'],['60d','Last 60 days'],['6m','Last 6 months'],['1y','Last year'],['2y','Last 2 years']];
@@ -572,7 +581,7 @@ function loadBasement(){
   $('bcchips').innerHTML=chips.map(function(c){return '<button class="citychip" data-a="'+esc(c)+'">'+esc(c)+'</button>';}).join('');
   $('bcchips').querySelectorAll('.citychip').forEach(function(b){ b.addEventListener('click',function(){ $('bcaddr').value=b.dataset.a; runBC(); }); });
   $('bcaddr').addEventListener('keydown',function(e){if(e.key==='Enter')runBC();});
-  call('basementcoverage').then(function(r){ if(!r||!r.tiers)return; $('bcCov').innerHTML='<div class="sec-h">What\u2019s covered</div>'+r.tiers.map(function(t){ return '<div class="card"><div class="card-s" style="font-weight:600;color:var(--ink2)">'+esc(t.label)+'</div><div class="lnkrow">'+(t.cities||[]).map(function(c){return '<span class="lnk" style="color:var(--ink2)">'+esc(c)+'</span>';}).join('')+'</div></div>'; }).join(''); });
+  call('basementcoverage').then(function(r){ if(!r||!r.tiers)return; $('bcCov').innerHTML='<div class="sec-h">What\u2019s covered</div>'+r.tiers.map(function(t){ return '<div class="card"><div class="card-s" style="font-weight:600;color:var(--ink2)">'+esc(t.label)+'</div><div class="lnkrow">'+(t.cities||[]).map(function(c){return '<span class="tagchip">'+esc(c)+'</span>';}).join('')+'</div></div>'; }).join(''); });
 }
 var BCC={pine:'c-pine',ochre:'c-ochre',grey:'c-grey',blue:'c-blue',rust:'c-rust'};
 function runBC(){
@@ -763,6 +772,8 @@ function dismissInstall(){ try{localStorage.setItem('ak_install','1');}catch(e){
 })();
 buildNav();
 buildTabs();
+var DETAIL_PARENT=null;
+document.getElementById('tbBack').addEventListener('click',function(){ go(DETAIL_PARENT||'home'); });
 if('scrollRestoration' in history) history.scrollRestoration='manual';   // router owns scroll position
 window.addEventListener('hashchange', route);
 route();
