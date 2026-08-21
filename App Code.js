@@ -499,6 +499,7 @@ function getLeaderboard_(key) {
         list.push({ name: String(vals[r2][1] || ''), calls: Number(vals[r2][2]) || 0, conv: Number(vals[r2][3]) || 0, talkSec: Number(vals[r2][4]) || 0 });
       }
     }
+    list = list.filter(function (a) { return !guideIsAdmin_(a.name); });   // same hide-list as the Buyers Guide
     if (!list.length) return { ok: false, error: 'No rows for "' + key + '".' };
     list.sort(function (x, y) { return (y.talkSec - x.talkSec) || (y.calls - x.calls); });
     var team = { calls: 0, conv: 0, talkSec: 0 };
@@ -709,6 +710,21 @@ function getMeetingsLeaderboard_(key) {
    ===================================================================== */
 
 /* ---------- search index across all city tabs (focus flag lives here) ---------- */
+/* School Rankings trimmed to the fields the app renders (~270KB -> ~80KB). */
+function rankingsSlim_() {
+  var hit = cacheGet_('rankings_slim'); if (hit) { hit.cached = true; return hit; }
+  var full = readTab_('School Rankings', 'main', '');
+  if (!full || !full.rows) return full;
+  function pick(r, names) { for (var k in r) { var lk = k.toLowerCase(); for (var i = 0; i < names.length; i++) if (lk === names[i]) return r[k]; } return ''; }
+  var rows = full.rows.map(function (r) {
+    return { school: pick(r, ['school', 'name']), level: pick(r, ['level', 'panel']), board: pick(r, ['board']),
+             city: pick(r, ['city', 'municipality']), community: pick(r, ['community', 'area']),
+             score: pick(r, ['score', 'rating']), rank: pick(r, ['rank', 'ranking']) };
+  });
+  var out = { updated: full.updated, count: rows.length, rows: rows };
+  cachePut_('rankings_slim', out); return out;
+}
+
 function getSearchIndex_() {
   var hit = cacheGet_('index_api'); if (hit) return hit.rows;
   var cities = getCities_().cities, out = [];
@@ -1544,7 +1560,7 @@ function app(action, p) {
     case 'guiderealtors': return getGuideRealtors_();
     case 'schools':
     case 'getRankings':
-    case 'getSchools':    return readTab_('School Rankings', 'main', '');
+    case 'getSchools':    return rankingsSlim_();
     case 'schoolfinder':  return getSchoolFinder_();
     case 'basement':      return getBasement_(p.addr || p.address);
     case 'basementcoverage': return getBasementCoverage_();

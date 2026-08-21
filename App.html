@@ -178,11 +178,12 @@ function cachedCall(action,params){
   });
 }
 function refreshView(){ FRESH=true; route(); }
-function ago(t){ var ms=Date.now()-(typeof t==='number'?t:new Date(t).getTime()); if(isNaN(ms)||ms<0) return ''; var m=Math.round(ms/60000); if(m<1) return 'just now'; if(m<60) return m+'m ago'; var h=Math.round(m/60); return h<24?h+'h ago':Math.round(h/24)+'d ago'; }
+function ago(t){ var ms=Date.now()-(typeof t==='number'?t:new Date(t).getTime()); if(isNaN(ms)||ms<0||ms>2592000000) return ''; var m=Math.round(ms/60000); if(m<1) return 'just now'; if(m<60) return m+'m ago'; var h=Math.round(m/60); return h<24?h+'h ago':Math.round(h/24)+'d ago'; }
 function stamp(d){
   if(!d) return '';
   var off=d.__offline?'<div class="warn" style="margin:0 0 12px">Offline — showing saved data from '+esc(ago(d.__offline)||'earlier')+'.</div>':'';
-  var up=d.updated?'<div class="card-s" style="margin:0 2px 12px">Updated '+esc(ago(d.updated)||'just now')+' · <button class="linklike" onclick="refreshView()">Refresh</button></div>':'';
+  var a=d.updated?ago(d.updated):'';
+  var up=d.updated?'<div class="card-s" style="margin:0 2px 12px">'+(a?'Updated '+esc(a)+' · ':'')+'<button class="linklike" onclick="refreshView()">Refresh</button></div>':'';
   return off+up;
 }
 function isUrl(v){return /^https?:\/\//i.test(String(v||''));}
@@ -342,10 +343,15 @@ function loadListings(){
   }).catch(fail);
 }
 function alSectionOf(l){ return l.exclusive?'For Sale':(l.section||'Other'); }
+function alSold(l){ return /sold|leased/i.test(l.status||''); }
 function renderAL(){
   var q=alQ.trim().toLowerCase();
-  var secs=[],seen={}; AL_DATA.forEach(function(l){ var k=alSectionOf(l); if(!seen[k]){seen[k]=1;secs.push(k);} });
-  var rows=AL_DATA.filter(function(l){ if(alSection!=='all'&&alSectionOf(l)!==alSection)return false; if(!q)return true; return (l.property+' '+(l.status||'')+' '+(l.section||'')).toLowerCase().indexOf(q)>=0; });
+  var secs=[],seen={},anySold=false; AL_DATA.forEach(function(l){ if(alSold(l)){anySold=true;return;} var k=alSectionOf(l); if(!seen[k]){seen[k]=1;secs.push(k);} });
+  if(anySold) secs.push('Sold/Leased');
+  var rows=AL_DATA.filter(function(l){
+    if(alSection==='Sold/Leased'){ if(!alSold(l)) return false; }
+    else { if(alSold(l)) return false; if(alSection!=='all'&&alSectionOf(l)!==alSection)return false; }
+    if(!q)return true; return (l.property+' '+(l.status||'')+' '+(l.section||'')).toLowerCase().indexOf(q)>=0; });
   rows.sort(function(a,b){return (b.exclusive?1:0)-(a.exclusive?1:0);});
   $('alCount').textContent=rows.length+(rows.length===1?' listing':' listings');
   $('alPills').innerHTML=['all'].concat(secs).map(function(s){ return '<button class="citychip'+(alSection===s?' on':'')+'" style="padding:6px 12px" data-s="'+esc(s)+'">'+esc(s==='all'?'All':s)+'</button>'; }).join('');
@@ -354,7 +360,7 @@ function renderAL(){
     var tone=listTone(l), label=l.exclusive?'Exclusive':(l.status||l.section||'Listing');
     return '<div class="card"><span class="pill" style="background:'+tone[0]+';color:'+tone[1]+'">'+esc(label)+'</span>'+(l.section&&!l.exclusive?' <span class="pill">'+esc(l.section)+'</span>':'')
       +'<div class="card-t">'+esc(l.property||'Listing')+'</div>'+(l.price?'<div style="font-family:var(--f-disp);font-weight:600;color:var(--blue);font-size:15px;margin:2px 0">'+esc(money(l.price))+'</div>':'')
-      +kv('Showing',l.showing)+kv('Notice',l.notice)+'<div class="lnkrow">'+linkBtn('Open listing',l.link)+'</div></div>';
+      +kv('MLS',l.mls)+kv('Agents',l.agents)+kv('Showing',l.showing)+kv('Notice',l.notice)+'<div class="lnkrow">'+linkBtn('Open listing',l.link)+'</div></div>';
   }).join(''):'<div class="empty">No listings match that.</div>';
 }
 
@@ -378,22 +384,27 @@ function loadSchools(){
     var norm=rows.map(function(r){ return { school:pick(r,['school','name']), level:pick(r,['level','panel']), board:pick(r,['board']), city:pick(r,['city','municipality']), community:pick(r,['community','area']), score:pick(r,['score','rating']), rank:pick(r,['rank','ranking']) }; });
     norm.sort(function(a,b){ return scoreNum(b.score)-scoreNum(a.score); });
     $('content').innerHTML=stamp(d)+'<div class="fbar"><input id="sq" placeholder="Filter by school, city or board…" value="'+esc(schoolQ)+'"></div><div class="card-s" id="sCount" style="margin:0 2px 12px"></div><div id="slist"></div>';
+    var LIMIT=200;
     function draw(q){ q=(q||'').toLowerCase();
       var f=norm.filter(function(s){ return !q||(s.school+' '+s.city+' '+s.board+' '+s.community).toLowerCase().indexOf(q)>=0; });
-      $('sCount').textContent=f.length+(f.length===1?' school':' schools');
-      $('slist').innerHTML=f.slice(0,200).map(function(s){
+      var shown=f.slice(0,LIMIT);
+      $('sCount').textContent=f.length>shown.length?('Showing top '+shown.length+' of '+f.length+' schools — search to narrow'):(f.length+(f.length===1?' school':' schools'));
+      $('slist').innerHTML=shown.map(function(s){
         var sub=[s.level,s.board,s.city,s.community].filter(Boolean).join(' · ');
-        return '<div class="card" style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start"><div style="min-width:0"><div class="card-t">'+esc(s.school)+'</div>'+(sub?'<div class="card-s">'+esc(sub)+'</div>':'')+'</div><div style="text-align:right;flex:none">'+scoreBadge(s.score)+(s.rank?'<div style="font-size:11px;color:var(--mute);margin-top:4px">'+esc(s.rank)+'</div>':'')+'</div></div>';
+        return '<div class="card" style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start"><div style="min-width:0"><div class="card-t">'+esc(s.school)+'</div>'+(sub?'<div class="card-s">'+esc(sub)+'</div>':'')+'</div><div style="text-align:right;flex:none">'+scoreBadge(s.score)+(s.rank?'<div style="font-size:11px;color:var(--mute);margin-top:4px">Rank '+esc(s.rank)+'</div>':'')+'</div></div>';
       }).join('')||'<div class="empty">No match.</div>';
+      if(f.length>shown.length) $('slist').innerHTML+='<button class="gobtn" style="width:100%;padding:13px" id="sMore">Show 200 more</button>';
+      var mb=$('sMore'); if(mb) mb.addEventListener('click',function(){ LIMIT+=200; draw(schoolQ); });
     }
-    $('sq').addEventListener('input',function(){schoolQ=this.value;draw(schoolQ);}); draw(schoolQ);
+    var st; $('sq').addEventListener('input',function(){ var v=this.value; clearTimeout(st); st=setTimeout(function(){ schoolQ=v; LIMIT=200; draw(schoolQ); },200); }); draw(schoolQ);
   }).catch(fail);
 }
+function fieldLabel(k){ return String(k).replace(/[_-]+/g,' ').replace(/([a-z])([A-Z])/g,'$1 $2').replace(/\s+/g,' ').trim().replace(/^./,function(c){return c.toUpperCase();}); }
 function genCard(o){
   if(o==null) return ''; if(typeof o!=='object') return '<div class="card"><div class="vv">'+esc(o)+'</div></div>';
   var keys=Object.keys(o).filter(function(k){return o[k]!=null&&o[k]!==''&&!/^_/.test(k);}); if(!keys.length) return '';
   var title=o.name||o.school||o.title||o.label||o[keys[0]];
-  var body=keys.filter(function(k){return o[k]!==title;}).map(function(k){return kv(k,o[k]);}).join('');
+  var body=keys.filter(function(k){return o[k]!==title;}).map(function(k){return kv(fieldLabel(k),o[k]);}).join('');
   return '<div class="card"><div class="card-t">'+esc(title)+'</div>'+body+'</div>';
 }
 
@@ -557,8 +568,11 @@ function drawLB(period){
     var rows=d.agents||d.rows||d.leaders||[];
     if(!rows.length){ $('lbRes').innerHTML='<div class="empty">No data.</div>'; return; }
     function mins(s){ s=Number(s)||0; if(!s) return '0m'; var m=Math.round(s/60); return m>=60?(Math.floor(m/60)+'h '+(m%60)+'m'):(m+'m'); }
-    $('lbRes').innerHTML=stamp(d)+rows.map(function(r,i){
-      return '<div class="card"><div class="card-t">'+(i+1)+'. '+esc(r.name||r.agent||'—')+'</div>'+kv('Calls',r.calls)+kv('Conversations',(r.conv!=null?r.conv:(r.conversations||0)))+kv('Talk time',mins(r.talkSec))+'</div>';
+    var team=d.team||null;
+    var head='<div class="card-s" style="margin:0 2px 10px">Ranked by talk time</div>';
+    if(team){ head+='<div class="card" style="display:flex;gap:20px"><div><div class="card-s">Team calls</div><div class="card-t">'+esc(team.calls)+'</div></div><div><div class="card-s">Conversations</div><div class="card-t">'+esc(team.conv)+'</div></div><div><div class="card-s">Talk time</div><div class="card-t">'+mins(team.talkSec)+'</div></div></div>'; }
+    $('lbRes').innerHTML=stamp(d)+head+rows.map(function(r,i){
+      return '<div class="card"><div class="card-t">'+(i+1)+'. '+esc(r.name||r.agent||'—')+'</div><div style="font-family:var(--f-disp);font-weight:600;font-size:15px;color:var(--blue);margin:2px 0 4px">'+mins(r.talkSec)+' <span style="font-size:10.5px;color:var(--mute);font-weight:400;text-transform:uppercase;letter-spacing:.05em">talk time</span></div>'+kv('Calls',r.calls)+kv('Conversations',(r.conv!=null?r.conv:(r.conversations||0)))+'</div>';
     }).join('');
   }).catch(fail);
 }

@@ -42,6 +42,17 @@ createServer(async (req, res) => {
       let body = await upstream.text();
       // Emulate server changes not yet deployed to V1, so the UI is testable locally:
       // guiderealtors now carries links {buyers, seller} from the Dashboard sheet.
+      if (url.searchParams.get('action') === 'leaderboard') {
+        // new server filters non-realtor rows via guideIsAdmin_
+        const HIDE = ['rahul gupta', 'isa aurakeyrealty', 'office admin', 'pramodh chandrashekar', 'amar kaur', 'follow up boss', 'nav sodhi'];
+        try { const j = JSON.parse(body); if (j.agents) { j.agents = j.agents.filter(a => !HIDE.includes(String(a.name || '').trim().toLowerCase())); body = JSON.stringify(j); } } catch {}
+      }
+      if (url.searchParams.get('action') === 'getSchools' || url.searchParams.get('action') === 'schools') {
+        // new server returns only the 7 rendered fields (rankingsSlim_)
+        try { const j = JSON.parse(body); if (j.rows) { const pk = (r, ns) => { for (const k of Object.keys(r)) if (ns.includes(k.toLowerCase())) return r[k]; return ''; };
+          j.rows = j.rows.map(r => ({ school: pk(r,['school','name']), level: pk(r,['level','panel']), board: pk(r,['board']), city: pk(r,['city','municipality']), community: pk(r,['community','area']), score: pk(r,['score','rating']), rank: pk(r,['rank','ranking']) }));
+          body = JSON.stringify(j); } } catch {}
+      }
       if (url.searchParams.get('action') === 'guiderealtors') {
         try { const j = JSON.parse(body); if (!j.links) { j.links = { buyers: 'https://example.com/dev-buyers-guide', seller: '' }; body = JSON.stringify(j); } } catch {}
       }
