@@ -192,11 +192,16 @@ function cachedCall(action,params){
 }
 function refreshView(){ FRESH=true; route(); }
 function ago(t){ var ms=Date.now()-(typeof t==='number'?t:new Date(t).getTime()); if(isNaN(ms)||ms<0||ms>2592000000) return ''; var m=Math.round(ms/60000); if(m<1) return 'just now'; if(m<60) return m+'m ago'; var h=Math.round(m/60); return h<24?h+'h ago':Math.round(h/24)+'d ago'; }
+var STALE_MS=600000;   // under 10 min the data counts as fresh — no Refresh button
 function stamp(d){
   if(!d) return '';
   var off=d.__offline?'<div class="warn" style="margin:0 0 12px">Offline — showing saved data from '+esc(ago(d.__offline)||'earlier')+'.</div>':'';
-  var a=d.updated?ago(d.updated):'';
-  var up=d.updated?'<div class="card-s" style="margin:0 2px 12px">'+(a?'Updated '+esc(a)+' · ':'')+'<button class="linklike" onclick="refreshView()">Refresh</button></div>':'';
+  if(!d.updated) return off;
+  var ms=Date.now()-new Date(d.updated).getTime(), bogus=isNaN(ms)||ms<0||ms>2592000000;
+  var a=bogus?'':ago(d.updated);
+  var showBtn=bogus||ms>=STALE_MS;
+  var up='<div class="card-s" style="margin:0 2px 12px">'+(a?'Updated '+esc(a):'')
+    +(showBtn?((a?' · ':'')+'<button class="linklike" onclick="refreshView()">Refresh</button>'):'')+'</div>';
   return off+up;
 }
 function isUrl(v){return /^https?:\/\//i.test(String(v||''));}
