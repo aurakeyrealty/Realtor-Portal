@@ -6,6 +6,7 @@
   --pine:#0F6349; --ochre:#9A6104; --slate:#54646C; --rust:#8C3019;
   --rust-soft:#F6E3DE; --pine-soft:#E1EFE9; --ochre-soft:#F7EEDC; --slate-soft:#EEF0F3;
   --blue-line:#CFE0EA;
+  --col:30rem;                 /* content column; widened on tablets */
   --f-disp:'Archivo','Helvetica Neue',Arial,sans-serif;
   --f-body:'IBM Plex Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
   --f-mono:'IBM Plex Mono',ui-monospace,Menlo,monospace;
@@ -16,8 +17,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--f-body);font-siz
 button{font-family:inherit;cursor:pointer}
 input{font-family:inherit;font-size:16.5px}
 a{color:var(--blue)}
-.phone{max-width:480px;margin:0 auto;background:var(--paper);min-height:100vh}
-@media(min-width:900px){.phone{margin:20px auto;min-height:auto;border-radius:8px;overflow:hidden;box-shadow:0 0 0 1px var(--line)}}
+.phone{max-width:var(--col);margin:0 auto;background:var(--paper);min-height:100vh}
 .topbar{background:var(--ink);color:#fff;position:sticky;top:0;z-index:20;padding:8px 16px;padding-top:calc(8px + env(safe-area-inset-top))}
 .hdr{background:var(--ink);color:#fff;padding:4px 16px 16px}
 .hdr-row{display:flex;align-items:center;gap:12px}
@@ -103,13 +103,30 @@ body.detail .tbback{display:block}
 .login-card input{width:100%;padding:12px 13px;border:1px solid var(--line);border-radius:8px;margin-bottom:10px}
 .avatar{width:44px;height:44px;border-radius:50%;object-fit:cover;background:var(--line);flex:none}
 .linklike{background:none;border:0;color:var(--blue);font:inherit;font-weight:600;padding:0;text-decoration:underline;cursor:pointer}
-.tabbar{position:fixed;bottom:0;left:0;right:0;max-width:480px;margin:0 auto;background:var(--card);border-top:1px solid var(--line);display:flex;z-index:25;padding-bottom:env(safe-area-inset-bottom)}
+.tabbar{position:fixed;bottom:0;left:0;right:0;max-width:var(--col);margin:0 auto;background:var(--card);border-top:1px solid var(--line);display:flex;z-index:25;padding-bottom:env(safe-area-inset-bottom)}
 .tabbar button{flex:1;background:none;border:0;display:flex;flex-direction:column;align-items:center;gap:4px;padding:8px 0 8px;font-size:11px;font-weight:600;color:var(--mute);min-height:52px;cursor:pointer}
 .tabbar button.on{color:var(--blue)}
 .tabbar svg{width:22px;height:22px}
-.toTop{position:fixed;bottom:calc(76px + env(safe-area-inset-bottom));right:max(14px,calc(50vw - 226px));width:46px;height:46px;border-radius:50%;border:0;background:var(--ink);color:#fff;display:grid;place-items:center;box-shadow:0 4px 14px rgba(6,14,18,.28);z-index:24;opacity:0;pointer-events:none;transform:translateY(8px);transition:opacity .18s,transform .18s;cursor:pointer}
+.toTop{position:fixed;bottom:calc(76px + env(safe-area-inset-bottom));right:max(0.875rem,calc(50vw - var(--col)/2 + 0.875rem));width:46px;height:46px;border-radius:50%;border:0;background:var(--ink);color:#fff;display:grid;place-items:center;box-shadow:0 4px 14px rgba(6,14,18,.28);z-index:24;opacity:0;pointer-events:none;transform:translateY(8px);transition:opacity .18s,transform .18s;cursor:pointer}
 .toTop.show{opacity:1;pointer-events:auto;transform:none}
-@media(min-width:900px){.toTop{bottom:20px}.tabbar{display:none}.wrap{padding-bottom:40px}}
+/* ---- Tablet (>=44em / 704px): use the width instead of floating a phone column.
+       Wider content rail and card lists flow two-up; lists, forms, filter bars
+       and section headers still span the full rail. ---- */
+@media(min-width:44em){
+  :root{--col:47.5rem}
+  #content,#slist,#alOut,#homeContacts,#lbRes,#fsOut,#wkRes,#ltbRes{display:grid;grid-template-columns:repeat(auto-fill,minmax(19rem,1fr));gap:0.75rem;align-items:start}
+  #content>*,#slist>*,#alOut>*,#homeContacts>*,#lbRes>*,#fsOut>*,#wkRes>*,#ltbRes>*{grid-column:1/-1}
+  #content>.card,#content>.skel,#slist>.card,#alOut>.card,#homeContacts>.card,#lbRes>.card,#lbRes>.skel,#fsOut>.card,#wkRes>.card,#wkRes>.skel,#ltbRes>.card{grid-column:auto;margin-bottom:0}
+  .login-card{grid-column:1/-1}
+}
+/* ---- Pointer, not width, decides the navigation affordance: touch keeps the
+       tab bar at any size; a mouse gets the framed page and the drawer. ---- */
+@media(min-width:56em) and (pointer:fine){
+  .phone{margin:1.25rem auto;min-height:auto;border-radius:8px;overflow:hidden;box-shadow:0 0 0 1px var(--line)}
+  .tabbar{display:none}
+  .wrap{padding-bottom:2.5rem}
+  .toTop{bottom:1.25rem}
+}
 @media(prefers-reduced-motion:reduce){.toTop{transition:none}}
 .skel{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:12px}
 .skel .b{height:12px;border-radius:6px;background:var(--line2);position:relative;overflow:hidden}
