@@ -695,19 +695,688 @@ function runBC(){
   }).catch(fail);
 }
 
+/* ===================== HOME EXPENSES =====================
+   The calculation core is the web version's AKX module, ported verbatim so
+   both apps produce the same number: CMHC premium tiers, the Ontario minimum
+   down payment, semi-annual compounding (Canadian convention, not rate/12),
+   and a 45-municipality property-tax table. Only the form below is ours.
+   Golden-value tested against the web module before it was wired to any UI. */
+var AKX=(function(){
+
+
+
+
+
+
+
+ 
+const EDUCATION_RATE = 0.153;
+
+
+
+const UPPER_TIER = {
+  peel:    { name: "Region of Peel",    rate: 0.562449, confidence: "confirmed" },
+  halton:  { name: "Halton Region",     rate: 0.284,    confidence: "estimate" },
+  york:    { name: "York Region",       rate: 0.290,    confidence: "estimate" },
+  durham:  { name: "Region of Durham",  rate: 0.700,    confidence: "estimate" },
+  niagara: { name: "Niagara Region",    rate: 0.640,    confidence: "estimate" },
+  waterloo:{ name: "Region of Waterloo",rate: 0.470,    confidence: "estimate" },
+  simcoe:  { name: "County of Simcoe",  rate: 0.230,    confidence: "estimate" },
+  none:    { name: "Single tier",       rate: 0,        confidence: "confirmed" },
+};
+
+
+
+const MUNICIPALITIES = [
+   
+  { name: "Brampton", region: "peel", lowerTier: 0.537932, total: 1.253381,
+    effectiveOnPrice: 0.87, confidence: "confirmed",
+    source: "City of Brampton 2026 Tax Rates and Levy (0.537932 + 0.562449 + 0.153000)",
+    verifyAt: "https://www.brampton.ca/EN/residents/Taxes-Assessment" },
+
+  { name: "Mississauga", region: "peel", lowerTier: 0.372452, total: 1.087901,
+    effectiveOnPrice: 0.68, confidence: "confirmed",
+    source: "City of Mississauga By-law 0061-2026 (consolidated residential rate)",
+    verifyAt: "https://www.mississauga.ca/services-and-programs/property-taxes/" },
+
+  { name: "Caledon", region: "peel", lowerTier: 0.482777, total: 0.982207,
+    effectiveOnPrice: 0.72, confidence: "confirmed",
+    source: "Town of Caledon 2026 Property Tax Rates, Schedule A — Residential (RT): Town 0.464570 + Infrastructure 0.018207 + Region 0.346430 + Education 0.153000 = 0.982207. Peel applies area-rated regional levies, so Caledon's region portion differs from Brampton's; the published total is authoritative.",
+    verifyAt: "https://www.caledon.ca/en/town-services/tax-rates-and-statements.aspx" },
+
+   
+  { name: "Oakville", region: "halton", lowerTier: 0.414, total: 0.850960,
+    effectiveOnPrice: 0.62, confidence: "confirmed",
+    source: "Town of Oakville 2026 Budget — $850.96 per $100,000 of assessment",
+    verifyAt: "https://www.oakville.ca" },
+
+  { name: "Burlington", region: "halton", lowerTier: 0.482, total: null,
+    effectiveOnPrice: 0.70, confidence: "estimate",
+    source: null, verifyAt: "https://www.burlington.ca" },
+
+  { name: "Milton", region: "halton", lowerTier: 0.375, total: null,
+    effectiveOnPrice: 0.62, confidence: "estimate",
+    source: null, verifyAt: "https://www.milton.ca" },
+
+  { name: "Halton Hills", region: "halton", lowerTier: 0.500, total: null,
+    effectiveOnPrice: 0.70, confidence: "estimate",
+    source: null, verifyAt: "https://www.haltonhills.ca" },
+
+   
+  { name: "Markham", region: "york", lowerTier: 0.279889, total: 0.722889,
+    effectiveOnPrice: 0.52, confidence: "confirmed",
+    source: "Lowest municipal residential rate in Ontario, 2026 provincial rate survey",
+    verifyAt: "https://www.markham.ca" },
+
+  { name: "Vaughan", region: "york", lowerTier: 0.335, total: null,
+    effectiveOnPrice: 0.56, confidence: "estimate",
+    source: null, verifyAt: "https://www.vaughan.ca" },
+
+  { name: "Richmond Hill", region: "york", lowerTier: 0.330, total: null,
+    effectiveOnPrice: 0.55, confidence: "estimate",
+    source: null, verifyAt: "https://www.richmondhill.ca" },
+
+  { name: "Aurora", region: "york", lowerTier: 0.420, total: null,
+    effectiveOnPrice: 0.63, confidence: "estimate",
+    source: null, verifyAt: "https://www.aurora.ca" },
+
+  { name: "Newmarket", region: "york", lowerTier: 0.460, total: null,
+    effectiveOnPrice: 0.67, confidence: "estimate",
+    source: null, verifyAt: "https://www.newmarket.ca" },
+
+  { name: "Whitchurch-Stouffville", region: "york", lowerTier: 0.400, total: null,
+    effectiveOnPrice: 0.61, confidence: "estimate",
+    source: null, verifyAt: "https://www.townofws.ca" },
+
+  { name: "King", region: "york", lowerTier: 0.300, total: null,
+    effectiveOnPrice: 0.50, confidence: "estimate",
+    source: null, verifyAt: "https://www.king.ca" },
+
+  { name: "East Gwillimbury", region: "york", lowerTier: 0.455, total: null,
+    effectiveOnPrice: 0.66, confidence: "estimate",
+    source: null, verifyAt: "https://www.eastgwillimbury.ca" },
+
+  { name: "Georgina", region: "york", lowerTier: 0.600, total: null,
+    effectiveOnPrice: 0.80, confidence: "estimate",
+    source: null, verifyAt: "https://www.georgina.ca" },
+
+   
+  { name: "Toronto", region: "none", lowerTier: 0.614311, total: 0.767311,
+    effectiveOnPrice: 0.48, confidence: "confirmed",
+    source: "City of Toronto 2026 property tax rates (incl. City Building Fund levy)",
+    verifyAt: "https://www.toronto.ca/services-payments/property-taxes-utilities/property-tax/property-tax-rates-and-fees/" },
+
+   
+  { name: "Oshawa", region: "durham", lowerTier: 0.780, total: null,
+    effectiveOnPrice: 1.20, confidence: "estimate",
+    source: null, verifyAt: "https://www.oshawa.ca" },
+
+  { name: "Whitby", region: "durham", lowerTier: 0.560, total: null,
+    effectiveOnPrice: 1.00, confidence: "estimate",
+    source: null, verifyAt: "https://www.whitby.ca/en/live/property-taxes.aspx" },
+
+  { name: "Ajax", region: "durham", lowerTier: 0.520, total: null,
+    effectiveOnPrice: 0.97, confidence: "estimate",
+    source: null, verifyAt: "https://www.ajax.ca" },
+
+  { name: "Pickering", region: "durham", lowerTier: 0.500, total: null,
+    effectiveOnPrice: 0.95, confidence: "estimate",
+    source: null, verifyAt: "https://www.pickering.ca" },
+
+  { name: "Clarington", region: "durham", lowerTier: 0.600, total: null,
+    effectiveOnPrice: 1.03, confidence: "estimate",
+    source: null, verifyAt: "https://www.clarington.net" },
+
+  { name: "Uxbridge", region: "durham", lowerTier: 0.430, total: null,
+    effectiveOnPrice: 0.90, confidence: "estimate",
+    source: null, verifyAt: "https://www.uxbridge.ca" },
+
+  { name: "Scugog", region: "durham", lowerTier: 0.470, total: null,
+    effectiveOnPrice: 0.93, confidence: "estimate",
+    source: null, verifyAt: "https://www.scugog.ca" },
+
+  { name: "Brock", region: "durham", lowerTier: 0.600, total: null,
+    effectiveOnPrice: 1.03, confidence: "estimate",
+    source: null, verifyAt: "https://www.townshipofbrock.ca" },
+
+   
+  { name: "Hamilton", region: "none", lowerTier: 1.050, total: null,
+    effectiveOnPrice: 1.00, confidence: "estimate",
+    source: null, verifyAt: "https://www.hamilton.ca" },
+
+  { name: "Burlington (Niagara-adjacent)", region: "halton", lowerTier: 0.482, total: null,
+    effectiveOnPrice: 0.70, confidence: "estimate", hidden: true,
+    source: null, verifyAt: "https://www.burlington.ca" },
+
+  { name: "St. Catharines", region: "niagara", lowerTier: 0.700, total: null,
+    effectiveOnPrice: 1.20, confidence: "estimate",
+    source: null, verifyAt: "https://www.stcatharines.ca" },
+
+  { name: "Niagara Falls", region: "niagara", lowerTier: 0.520, total: null,
+    effectiveOnPrice: 1.05, confidence: "estimate",
+    source: null, verifyAt: "https://niagarafalls.ca" },
+
+  { name: "Grimsby", region: "niagara", lowerTier: 0.480, total: null,
+    effectiveOnPrice: 1.00, confidence: "estimate",
+    source: null, verifyAt: "https://www.grimsby.ca" },
+
+   
+  { name: "Kitchener", region: "waterloo", lowerTier: 0.480, total: null,
+    effectiveOnPrice: 0.95, confidence: "estimate",
+    source: null, verifyAt: "https://www.kitchener.ca" },
+
+  { name: "Waterloo", region: "waterloo", lowerTier: 0.470, total: null,
+    effectiveOnPrice: 0.94, confidence: "estimate",
+    source: null, verifyAt: "https://www.waterloo.ca" },
+
+  { name: "Cambridge", region: "waterloo", lowerTier: 0.500, total: null,
+    effectiveOnPrice: 0.97, confidence: "estimate",
+    source: null, verifyAt: "https://www.cambridge.ca" },
+
+  { name: "Guelph", region: "none", lowerTier: 0.990, total: null,
+    effectiveOnPrice: 0.95, confidence: "estimate",
+    source: null, verifyAt: "https://guelph.ca" },
+
+   
+  { name: "Barrie", region: "none", lowerTier: 1.060, total: null,
+    effectiveOnPrice: 1.00, confidence: "estimate",
+    source: null, verifyAt: "https://www.barrie.ca" },
+
+  { name: "Innisfil", region: "simcoe", lowerTier: 0.700, total: null,
+    effectiveOnPrice: 0.95, confidence: "estimate",
+    source: null, verifyAt: "https://innisfil.ca" },
+
+  { name: "Bradford West Gwillimbury", region: "simcoe", lowerTier: 0.680, total: null,
+    effectiveOnPrice: 0.93, confidence: "estimate",
+    source: null, verifyAt: "https://www.townofbwg.com" },
+
+  { name: "New Tecumseth", region: "simcoe", lowerTier: 0.720, total: null,
+    effectiveOnPrice: 0.96, confidence: "estimate",
+    source: null, verifyAt: "https://www.newtecumseth.ca" },
+
+   
+  { name: "Ottawa", region: "none", lowerTier: 1.074103, total: 1.227103,
+    effectiveOnPrice: 1.05, confidence: "estimate",
+    source: "2025 final rate — Ottawa's 2026 by-law passes mid-year",
+    verifyAt: "https://ottawa.ca/en/living-ottawa/taxes/property-taxes" },
+
+  { name: "London", region: "none", lowerTier: 1.250, total: null,
+    effectiveOnPrice: 1.15, confidence: "estimate",
+    source: null, verifyAt: "https://london.ca" },
+
+  { name: "Windsor", region: "none", lowerTier: 1.700, total: null,
+    effectiveOnPrice: 1.60, confidence: "estimate",
+    source: null, verifyAt: "https://www.citywindsor.ca" },
+
+  { name: "Kingston", region: "none", lowerTier: 1.180, total: null,
+    effectiveOnPrice: 1.10, confidence: "estimate",
+    source: null, verifyAt: "https://www.cityofkingston.ca" },
+
+  { name: "Peterborough", region: "none", lowerTier: 1.290, total: null,
+    effectiveOnPrice: 1.20, confidence: "estimate",
+    source: null, verifyAt: "https://www.peterborough.ca" },
+
+  { name: "Sudbury", region: "none", lowerTier: 1.400, total: null,
+    effectiveOnPrice: 1.35, confidence: "estimate",
+    source: null, verifyAt: "https://www.greatersudbury.ca" },
+
+  { name: "Thunder Bay", region: "none", lowerTier: 1.440, total: null,
+    effectiveOnPrice: 1.40, confidence: "estimate",
+    source: null, verifyAt: "https://www.thunderbay.ca" },
+];
+
+ 
+const BY_NAME = MUNICIPALITIES.reduce((m, x) => { m[x.name] = x; return m; }, {});
+
+ 
+const municipalityNames = () =>
+  MUNICIPALITIES.filter((x) => !x.hidden).map((x) => x.name);
+
+
+
+function municipalRate(name) {
+  const m = BY_NAME[name];
+  if (!m) return null;
+  const region = UPPER_TIER[m.region] || UPPER_TIER.none;
+  const summed = m.lowerTier + region.rate + EDUCATION_RATE;
+  const usePublished = typeof m.total === "number";
+
+  
+  let confidence = m.confidence;
+  if (!usePublished && region.confidence === "estimate") confidence = "estimate";
+
+  return {
+    rate: usePublished ? m.total : summed,
+    lowerTier: m.lowerTier,
+    upperTier: region.rate,
+    education: EDUCATION_RATE,
+    regionName: region.name,
+    effectiveOnPrice: m.effectiveOnPrice,
+    confidence,
+    source: m.source,
+    verifyAt: m.verifyAt,
+    derived: !usePublished,
+  };
+}
+
+
+
+
+
+ 
+const INSURABLE_CAP = 1500000;
+
+
+
+const PREMIUM_TAX_RATE = { ON: 0.08, QC: 0.09, SK: 0.06, MB: 0.09 };
+
+
+
+function minDownPayment(price) {
+  if (!(price > 0)) return 0;
+  if (price < 500000) return price * 0.05;
+  if (price < INSURABLE_CAP) return 25000 + (price - 500000) * 0.1;
+  return price * 0.2;
+}
+
+
+
+function insurancePremiumRate(ltv, amortYears) {
+  if (ltv > 0.95) return null;
+  let rate;
+  if (ltv > 0.9) rate = 4.0;
+  else if (ltv > 0.85) rate = 3.1;
+  else if (ltv > 0.8) rate = 2.8;
+  else return 0;
+  if (amortYears > 25) rate += 0.2;  
+  return rate;
+}
+
+
+
+function monthlyRate(annualPct) {
+  return Math.pow(1 + annualPct / 100 / 2, 1 / 6) - 1;
+}
+
+ 
+function mortgagePayment(principal, i, n) {
+  if (!(principal > 0) || !(n > 0)) return 0;
+  if (i === 0) return principal / n;
+  return (principal * i) / (1 - Math.pow(1 + i, -n));
+}
+
+
+
+function buildMortgage({
+  price, downPayment, ratePct, amortYears,
+  firstTimeBuyer = false, newBuild = false, province = "ON",
+}) {
+  const minDown = minDownPayment(price);
+  const belowMinimum = downPayment < minDown - 0.5;
+  const downPct = price > 0 ? (downPayment / price) * 100 : 0;
+
+  const baseLoan = Math.max(0, price - downPayment);
+  const ltv = price > 0 ? baseLoan / price : 0;
+
+  const overCap = price >= INSURABLE_CAP;
+  const conventional = downPct >= 20;
+  const insured = !overCap && !conventional && !belowMinimum;
+
+  const premRate = insured ? insurancePremiumRate(ltv, amortYears) || 0 : 0;
+  const premium = (baseLoan * premRate) / 100;
+  const premiumTax = premium * (PREMIUM_TAX_RATE[province] || 0);
+
+  const totalLoan = baseLoan + premium;
+  const i = monthlyRate(ratePct);
+  const n = amortYears * 12;
+  const payment = mortgagePayment(totalLoan, i, n);
+
+  const firstInterest = totalLoan * i;
+  const firstPrincipal = Math.max(0, payment - firstInterest);
+  const totalInterest = payment * n - totalLoan;
+
+  
+  
+  const longAmortBlocked =
+    insured && amortYears > 25 && !firstTimeBuyer && !newBuild;
+
+  return {
+    minDown, belowMinimum, downPayment, downPct,
+    baseLoan, ltv, insured, conventional, overCap,
+    premiumRate: premRate, premium, premiumTax,
+    totalLoan, monthlyRate: i, payment,
+    firstInterest, firstPrincipal, totalInterest,
+    longAmortBlocked,
+  };
+}
+
+ 
+function amortizationSchedule({ principal, ratePct, amortYears, maxRows = 0 }) {
+  const i = monthlyRate(ratePct);
+  const n = amortYears * 12;
+  const pay = mortgagePayment(principal, i, n);
+  const rows = [];
+  let bal = principal;
+  const limit = maxRows > 0 ? Math.min(maxRows, n) : n;
+  for (let k = 1; k <= limit; k++) {
+    const interest = bal * i;
+    const principalPart = pay - interest;
+    bal = Math.max(0, bal - principalPart);
+    rows.push({ month: k, payment: pay, interest, principal: principalPart, balance: bal });
+  }
+  return { payment: pay, rows };
+}
+
+
+
+
+
+
+
+function propertyTaxAnnual({
+  mode = "price", price = 0, municipality = null,
+  effectivePct = null, assessedValue = 0, ratePct = null, amount = 0,
+}) {
+  const info = municipality ? municipalRate(municipality) : null;
+
+  if (mode === "amount") {
+    return { annual: amount, basis: "Entered directly", info };
+  }
+  if (mode === "assessed") {
+    const r = ratePct != null ? ratePct : info ? info.rate : 0;
+    return {
+      annual: (assessedValue * r) / 100,
+      basis: `MPAC assessed value x ${r.toFixed(4)}%`,
+      rateUsed: r, info,
+    };
+  }
+  const e = effectivePct != null ? effectivePct : info ? info.effectiveOnPrice : 0;
+  return {
+    annual: (price * e) / 100,
+    basis: `Purchase price x ${e}% (estimate — no MPAC assessment yet)`,
+    rateUsed: e, info,
+  };
+}
+
+
+
+
+
+const DEFAULT_INPUT = {
+  price: 900000,
+  downPayment: 180000,
+  ratePct: 4.49,
+  amortYears: 25,
+  firstTimeBuyer: false,
+  newBuild: true,
+  province: "ON",
+
+  municipality: "Brampton",
+  taxMode: "price",          
+  taxEffectivePct: null,     
+  assessedValue: 620000,
+  taxRatePct: null,
+  taxAmount: 7800,
+
+  insurance: 155,            
+  hydro: 130,
+  gas: 110,
+  water: 75,
+  internet: 80,
+  waterHeaterRental: 45,
+  hvacRental: 0,
+  potl: 0,
+  condoFee: 0,
+  alarm: 0,
+  lawnSnow: 0,
+  otherLabel: "Other",
+  other: 0,
+
+  maintenanceReservePct: 0.5, 
+};
+
+
+
+function computeCarryingCost(input = {}) {
+  const q = { ...DEFAULT_INPUT, ...input };
+
+  const mortgage = buildMortgage({
+    price: q.price, downPayment: q.downPayment, ratePct: q.ratePct,
+    amortYears: q.amortYears, firstTimeBuyer: q.firstTimeBuyer,
+    newBuild: q.newBuild, province: q.province,
+  });
+
+  const tax = propertyTaxAnnual({
+    mode: q.taxMode, price: q.price, municipality: q.municipality,
+    effectivePct: q.taxEffectivePct, assessedValue: q.assessedValue,
+    ratePct: q.taxRatePct, amount: q.taxAmount,
+  });
+
+  const utilities =
+    q.hydro + q.gas + q.water + q.internet + q.waterHeaterRental + q.hvacRental;
+  const fees = q.potl + q.condoFee + q.alarm + q.lawnSnow;
+  const reserve = (q.price * q.maintenanceReservePct) / 100 / 12;
+
+  
+  
+  const lines = [
+    { key: "mortgage",   label: "Mortgage",            monthly: mortgage.payment, colour: "#D4A82C" },
+    { key: "tax",        label: "Property tax",        monthly: tax.annual / 12,  colour: "#6EA8DC" },
+    { key: "insurance",  label: "Home insurance",      monthly: q.insurance,      colour: "#5CC0A0" },
+    { key: "utilities",  label: "Utilities & rentals", monthly: utilities,        colour: "#A6B6C8" },
+    { key: "fees",       label: "Fees",                monthly: fees,             colour: "#E39A5C" },
+    { key: "reserve",    label: "Maintenance reserve", monthly: reserve,          colour: "#E9D08A" },
+    { key: "other",      label: q.otherLabel || "Other", monthly: q.other,        colour: "#B79AD1" },
+  ];
+
+  const monthlyTotal = lines.reduce((a, b) => a + b.monthly, 0);
+
+  const warnings = [];
+  if (mortgage.belowMinimum)
+    warnings.push(`Down payment is below the ${Math.round(mortgage.minDown).toLocaleString("en-CA")} legal minimum for this price.`);
+  if (mortgage.overCap && !mortgage.conventional)
+    warnings.push("At $1.5M or above, mortgage insurance is unavailable — 20% down is required.");
+  if (mortgage.longAmortBlocked)
+    warnings.push("A 30-year amortization on an insured mortgage needs first-time buyer status or a new build.");
+  if (tax.info && tax.info.confidence === "estimate" && q.taxMode === "assessed")
+    warnings.push(`The ${q.municipality} rate is unconfirmed. Verify it before showing this to a client.`);
+
+  return {
+    input: q,
+    mortgage,
+    tax,
+    lines: lines.filter((l) => l.monthly > 0),
+    allLines: lines,
+    utilities, fees, reserve,
+    monthlyTotal,
+    annualTotal: monthlyTotal * 12,
+    nonMortgageMonthly: monthlyTotal - mortgage.payment,
+    nonMortgageShare: monthlyTotal > 0 ? (monthlyTotal - mortgage.payment) / monthlyTotal : 0,
+    warnings,
+  };
+}
+
+
+
+
+
+const cad = (n, dp = 0) =>
+  new Intl.NumberFormat("en-CA", {
+    style: "currency", currency: "CAD",
+    minimumFractionDigits: dp, maximumFractionDigits: dp,
+  }).format(Number.isFinite(n) ? n : 0);
+
+ 
+function summaryText(result, clientName = "") {
+  const r = result;
+  const rows = r.lines
+    .map((l) => `${l.label.padEnd(22, ".")} ${cad(l.monthly)}`)
+    .join("\n");
+  return [
+    `MONTHLY CARRYING COST${clientName ? " — " + clientName : ""}`,
+    `${cad(r.input.price)} · ${cad(r.mortgage.downPayment)} down (${r.mortgage.downPct.toFixed(1)}%) · ${r.input.ratePct}% · ${r.input.amortYears}-yr`,
+    "",
+    rows,
+    "".padEnd(30, "-"),
+    `TOTAL PER MONTH       ${cad(r.monthlyTotal)}`,
+    `TOTAL PER YEAR        ${cad(r.annualTotal)}`,
+    "",
+    `Mortgage amount: ${cad(r.mortgage.totalLoan)}${r.mortgage.premium ? ` (incl. ${cad(r.mortgage.premium)} insurance premium)` : ""}`,
+    r.mortgage.premiumTax ? `Ontario tax on premium, cash at closing: ${cad(r.mortgage.premiumTax)}` : "",
+    "",
+    "Estimate only. Not a mortgage approval or a tax assessment.",
+    "Aura Key Realty",
+  ].filter(Boolean).join("\n");
+}
+
+ 
+function exportRateTable() {
+  return MUNICIPALITIES.filter((x) => !x.hidden).map((x) => {
+    const r = municipalRate(x.name);
+    return {
+      municipality: x.name,
+      region: r.regionName,
+      lowerTier: x.lowerTier,
+      upperTier: r.upperTier,
+      education: EDUCATION_RATE,
+      combinedRate: Number(r.rate.toFixed(6)),
+      published: !r.derived,
+      effectiveOnPrice: x.effectiveOnPrice,
+      confidence: r.confidence,
+      source: r.source || "",
+      verifyAt: r.verifyAt || "",
+    };
+  });
+}
+
+ 
+function exportRateTableCsv() {
+  const rows = exportRateTable();
+  const cols = Object.keys(rows[0]);
+  const esc = (v) => `"${String(v).replace(/"/g, '""')}"`;
+  return [cols.join(","), ...rows.map((r) => cols.map((c) => esc(r[c])).join(","))].join("\n");
+}
+return { EDUCATION_RATE, UPPER_TIER, MUNICIPALITIES, INSURABLE_CAP,
+  municipalityNames, municipalRate, minDownPayment, insurancePremiumRate,
+  monthlyRate, mortgagePayment, buildMortgage, amortizationSchedule,
+  propertyTaxAnnual, computeCarryingCost, DEFAULT_INPUT, cad, summaryText,
+  exportRateTable, exportRateTableCsv };
+})();
+
+/* ---- the form: core costs visible, the optional line items folded away so a
+   phone isn't a wall of 26 fields ---- */
+var EX_STATE=null;
+var EX_CORE=[
+  ['price','Purchase price','$'],
+  ['downPayment','Down payment','$'],
+  ['ratePct','Interest rate','%'],
+  ['amortYears','Amortization','yrs']
+];
+var EX_MORE=[
+  ['insurance','Home insurance'],['hydro','Hydro'],['gas','Gas'],['water','Water'],
+  ['internet','Internet'],['waterHeaterRental','Water heater rental'],['hvacRental','HVAC rental'],
+  ['condoFee','Condo fee'],['potl','POTL fee'],['alarm','Alarm monitoring'],['lawnSnow','Lawn & snow'],
+  ['other','Other']
+];
+function exNum(id){ var el=$(id); if(!el) return 0; return parseFloat(String(el.value||'').replace(/[^0-9.\-]/g,''))||0; }
+function exMoney(n){ return '$'+Math.round(n).toLocaleString('en-CA'); }
+function exField(key,label,unit,val){
+  return '<label class="exrow"><span class="exlbl">'+esc(label)+(unit?' <i>'+esc(unit)+'</i>':'')+'</span>'
+    +'<input id="ex_'+key+'" inputmode="decimal" autocomplete="off" value="'+esc(String(val))+'"></label>';
+}
 function loadExpenses(){
-  $('content').innerHTML='<div class="card wide"><div class="card-s">Rough monthly carrying-cost estimate. For a full breakdown use the website calculator.</div></div>'+field('Purchase price ($)','ex_price','850000')+field('Down payment (%)','ex_down','20')+field('Interest rate (%)','ex_rate','5.5')+field('Amortization (years)','ex_am','25')+field('Property tax / year ($)','ex_tax','4500')+field('Condo fees / month ($)','ex_condo','0')+'<button class="gobtn" style="width:100%;padding:13px;margin-top:6px" onclick="calcEx()">Calculate</button><div id="exOut" style="margin-top:14px"></div>';
+  var d=AKX.DEFAULT_INPUT;
+  EX_STATE=EX_STATE||{
+    price:d.price,downPayment:d.downPayment,ratePct:d.ratePct,amortYears:d.amortYears,
+    municipality:d.municipality,taxMode:'price',taxAmount:d.taxAmount,assessedValue:d.assessedValue,
+    firstTimeBuyer:false,newBuild:false,maintenanceReservePct:d.maintenanceReservePct,
+    insurance:d.insurance,hydro:d.hydro,gas:d.gas,water:d.water,internet:d.internet,
+    waterHeaterRental:d.waterHeaterRental,hvacRental:d.hvacRental,condoFee:d.condoFee,
+    potl:d.potl,alarm:d.alarm,lawnSnow:d.lawnSnow,other:d.other
+  };
+  var s=EX_STATE;
+  $('content').innerHTML=
+     '<div class="card wide"><div class="card-s">A full monthly carrying cost — mortgage with CMHC insurance, property tax, utilities and a maintenance reserve. Same calculation as the web version.</div></div>'
+    +'<div class="exgrp">'+EX_CORE.map(function(f){ return exField(f[0],f[1],f[2],s[f[0]]); }).join('')
+    +'<label class="exrow"><span class="exlbl">Municipality</span><select id="ex_muni">'
+      +AKX.municipalityNames().map(function(n){ return '<option'+(n===s.municipality?' selected':'')+'>'+esc(n)+'</option>'; }).join('')
+    +'</select></label>'
+    +'<label class="exrow"><span class="exlbl">Property tax</span><select id="ex_taxMode">'
+      +'<option value="price"'+(s.taxMode==='price'?' selected':'')+'>Estimate from price</option>'
+      +'<option value="assessed"'+(s.taxMode==='assessed'?' selected':'')+'>From MPAC assessment</option>'
+      +'<option value="amount"'+(s.taxMode==='amount'?' selected':'')+'>Enter the annual amount</option>'
+    +'</select></label>'
+    +'<div id="ex_taxExtra"></div>'
+    +'<label class="exchk"><input type="checkbox" id="ex_ftb"'+(s.firstTimeBuyer?' checked':'')+'><span>First-time buyer</span></label>'
+    +'<label class="exchk"><input type="checkbox" id="ex_new"'+(s.newBuild?' checked':'')+'><span>New build</span></label>'
+    +'</div>'
+    +'<details class="card exmore"><summary>Other monthly costs</summary><div class="exgrp">'
+      +EX_MORE.map(function(f){ return exField(f[0],f[1],'$',s[f[0]]); }).join('')
+      +exField('maintenanceReservePct','Maintenance reserve','% of price / yr',s.maintenanceReservePct)
+    +'</div></details>'
+    +'<div id="exOut"></div>';
+  paintTaxExtra();
+  $('content').querySelectorAll('#content input, #content select').forEach(function(el){
+    el.addEventListener(el.tagName==='SELECT'||el.type==='checkbox'?'change':'input',function(){
+      if(el.id==='ex_taxMode'){ EX_STATE.taxMode=el.value; paintTaxExtra(); }
+      calcEx();
+    });
+  });
+  calcEx();
 }
-function field(label,id,val){ return '<label class="seclbl" style="margin-top:12px;display:block">'+esc(label)+'</label><input id="'+id+'" inputmode="decimal" value="'+esc(val)+'" style="width:100%;padding:12px 13px;border:1px solid var(--line);border-radius:8px">'; }
-function num(id){ return parseFloat(($(id).value||'').replace(/[^0-9.]/g,''))||0; }
+function paintTaxExtra(){
+  var s=EX_STATE, h='';
+  if(s.taxMode==='assessed') h=exField('assessedValue','MPAC assessed value','$',s.assessedValue);
+  if(s.taxMode==='amount')   h=exField('taxAmount','Annual property tax','$',s.taxAmount);
+  $('ex_taxExtra').innerHTML=h;
+  $('ex_taxExtra').querySelectorAll('input').forEach(function(el){ el.addEventListener('input',calcEx); });
+}
 function calcEx(){
-  var price=num('ex_price'),down=num('ex_down'),rate=num('ex_rate'),am=num('ex_am'),tax=num('ex_tax'),condo=num('ex_condo');
-  var loan=price*(1-down/100), i=rate/100/12, n=am*12;
-  var mort= i>0 ? loan*i/(1-Math.pow(1+i,-n)) : (n?loan/n:0);
-  var total=mort+tax/12+condo;
-  function money(x){return '$'+Math.round(x).toLocaleString();}
-  $('exOut').innerHTML='<div class="card"><div class="card-t">'+money(total)+' / month</div>'+kv('Mortgage',money(mort))+kv('Property tax',money(tax/12))+kv('Condo fees',money(condo))+kv('Loan amount',money(loan))+'<div class="warn" style="background:var(--blue-soft);border-color:var(--blue-line);color:var(--blue)">Estimate only — excludes insurance, utilities, and closing costs.</div></div>';
+  var s=EX_STATE;
+  EX_CORE.forEach(function(f){ s[f[0]]=exNum('ex_'+f[0]); });
+  EX_MORE.forEach(function(f){ if($('ex_'+f[0])) s[f[0]]=exNum('ex_'+f[0]); });
+  if($('ex_maintenanceReservePct')) s.maintenanceReservePct=exNum('ex_maintenanceReservePct');
+  if($('ex_muni')) s.municipality=$('ex_muni').value;
+  if($('ex_taxMode')) s.taxMode=$('ex_taxMode').value;
+  if($('ex_assessedValue')) s.assessedValue=exNum('ex_assessedValue');
+  if($('ex_taxAmount')) s.taxAmount=exNum('ex_taxAmount');
+  if($('ex_ftb')) s.firstTimeBuyer=$('ex_ftb').checked;
+  if($('ex_new')) s.newBuild=$('ex_new').checked;
+
+  var r=AKX.computeCarryingCost(s);
+  var pct=s.price>0?Math.round(s.downPayment/s.price*1000)/10:0;
+  var h='<div class="card wide"><div class="extotal">'+exMoney(r.monthlyTotal)+'<span> / month</span></div>'
+       +'<div class="card-s">'+exMoney(r.annualTotal)+' a year · '+pct+'% down</div></div>';
+  h+=r.warnings.map(function(w){ return '<div class="warn" style="background:var(--rust-soft);border-color:var(--rust);color:var(--rust)">'+esc(w)+'</div>'; }).join('');
+  h+='<div class="sec-h">Where it goes</div><div class="card">'
+     +r.allLines.filter(function(l){return l.monthly>0;}).map(function(l){
+        var share=r.monthlyTotal>0?Math.round(l.monthly/r.monthlyTotal*100):0;
+        return '<div class="exline"><span class="exdot" style="background:'+l.colour+'"></span>'
+          +'<span class="exname">'+esc(l.label)+'</span>'
+          +'<span class="exshare">'+share+'%</span>'
+          +'<span class="examt">'+exMoney(l.monthly)+'</span></div>';
+      }).join('')+'</div>';
+  var m=r.mortgage;
+  h+='<div class="sec-h">Mortgage</div><div class="card">'
+    +kv('Loan amount',exMoney(m.baseLoan))
+    +(m.premium>0?kv('CMHC premium',exMoney(m.premium)+' ('+m.premiumRate+'%)'):kv('CMHC premium','Not required'))
+    +(m.premiumTax>0?kv('Premium tax',exMoney(m.premiumTax)+' — due on closing'):'')
+    +kv('Total borrowed',exMoney(m.totalLoan))
+    +kv('Minimum down',exMoney(m.minDown))
+    +'</div>';
+  var t=r.tax, info=t.info;
+  h+='<div class="sec-h">Property tax</div><div class="card">'
+    +kv('Annual',exMoney(t.annual))+kv('Basis',t.basis)
+    +(info?kv('Combined rate',info.rate.toFixed(4)+'%'):'')
+    +(info&&info.confidence!=='confirmed'
+        ? '<div class="warn" style="background:var(--ochre-soft);border-color:var(--ochre);color:var(--ochre)">This '+esc(s.municipality)+' rate is an estimate, not a confirmed by-law figure. Verify it before showing a client.'
+          +(info.verifyAt?' '+linkBtn('Check the city',info.verifyAt):'')+'</div>'
+        : (info?'<div class="card-s" style="margin-top:8px">Confirmed rate'+(info.source?' — '+esc(info.source):'')+'</div>':''))
+    +'</div>';
+  $('exOut').innerHTML=h;
 }
+
+
 
 var CN=null, cnDate=null;
 function cnPresentCount(iso){ var a=(CN.attendance||{})[iso]||{}; return (CN.realtors||[]).filter(function(n){return a[n];}).length; }

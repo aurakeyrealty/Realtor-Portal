@@ -116,6 +116,31 @@ a.rowitem{text-decoration:none;box-sizing:border-box}
 .next li{position:relative;padding:0.4375rem 0 0.4375rem 1.125rem;font-size:var(--fs-md);color:var(--ink2);border-bottom:1px solid var(--line2)}
 .next li:last-child{border-bottom:0}
 .next li:before{content:"";position:absolute;left:0.125rem;top:0.875rem;width:0.375rem;height:0.375rem;border-radius:50%;background:var(--blue)}
+/* ---- Home Expenses form ---- */
+.exgrp{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:0.25rem 1rem;margin-bottom:0.75rem}
+.exrow{display:flex;align-items:center;gap:0.75rem;padding:0.6875rem 0;border-bottom:1px solid var(--line2)}
+.exrow:last-child{border-bottom:0}
+.exlbl{flex:1;min-width:0;font-size:var(--fs-md);color:var(--ink2)}
+.exlbl i{font-style:normal;color:var(--mute);font-size:var(--fs-xs)}
+.exrow input,.exrow select{flex:none;width:9.5rem;max-width:45%;padding:0.5rem 0.625rem;border:1px solid var(--line);border-radius:8px;background:var(--paper);color:var(--ink);font-family:inherit;font-size:max(16px,var(--fs-base));text-align:right}
+.exrow select{text-align:left;width:11.5rem}
+.exrow input:focus,.exrow select:focus{outline:2px solid var(--blue);outline-offset:-1px}
+.exchk{display:flex;align-items:center;gap:0.625rem;padding:0.6875rem 0;border-bottom:1px solid var(--line2);font-size:var(--fs-md);color:var(--ink2)}
+.exchk:last-child{border-bottom:0}
+.exchk input{width:1.125rem;height:1.125rem;flex:none;accent-color:var(--blue)}
+.exmore{padding:0}
+.exmore>summary{padding:0.9375rem 1rem;font-weight:600;font-size:var(--fs-md);color:var(--blue);cursor:pointer;list-style:none}
+.exmore>summary::-webkit-details-marker{display:none}
+.exmore>summary::after{content:'+';float:right;font-weight:400;color:var(--mute)}
+.exmore[open]>summary::after{content:'\2212'}
+.exmore>summary+.exgrp{border:0;border-top:1px solid var(--line2);border-radius:0;margin:0}
+.extotal{font-family:var(--f-disp);font-weight:700;font-size:2rem;letter-spacing:-.02em;color:var(--ink);line-height:1.1}
+.extotal span{font-family:var(--f-body);font-size:var(--fs-md);font-weight:400;color:var(--mute);letter-spacing:0}
+.exline{display:flex;align-items:center;gap:0.625rem;padding:0.4375rem 0;font-size:var(--fs-md)}
+.exdot{width:0.625rem;height:0.625rem;border-radius:2px;flex:none}
+.exname{flex:1;min-width:0;color:var(--ink2)}
+.exshare{color:var(--mute);font-family:var(--f-mono);font-size:var(--fs-xs);flex:none}
+.examt{font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums;flex:none;min-width:4.5rem;text-align:right}
 .seclbl{font-family:var(--f-mono);font-size:var(--fs-xs);letter-spacing:.12em;text-transform:uppercase;color:var(--mute);margin:1.25rem 0 0.5rem}
 .ev{margin-top:1rem;border-top:1px solid var(--line)}
 .ev summary{cursor:pointer;list-style:none;padding:0.75rem 0.125rem 0.25rem;font-size:var(--fs-sm);font-weight:600;color:var(--mute)}
