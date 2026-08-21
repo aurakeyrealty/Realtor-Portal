@@ -1127,7 +1127,7 @@ function guideIsAdmin_(name) { return GUIDE_HIDE_.indexOf(String(name || '').tri
 function guideThumb_(url) {
   url = String(url || '').trim(); if (!url) return '';
   var m = url.match(/\/d\/([a-zA-Z0-9_-]{20,})/); if (!m) m = url.match(/[?&]id=([a-zA-Z0-9_-]{20,})/);
-  return m ? ('https://drive.google.com/thumbnail?id=' + m[1] + '&sz=w600') : url;
+  return m ? ('https://drive.google.com/thumbnail?id=' + m[1] + '&sz=w192') : url;   // 44px avatar; w192 stays sharp at 3x DPR
 }
 function getGuideRealtors_() {
   try {
