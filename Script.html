@@ -279,9 +279,15 @@ function mtgPref(label){
 }
 function isMortgageCat(k){ return /mortgage/i.test(String(k||'')); }
 function mortgagePanel(items){
-  var bankers=items.filter(function(c){ return /bank/i.test(c.title||''); });
-  var brokers=items.filter(function(c){ return /broker/i.test(c.title||''); });
-  var rest=items.filter(function(c){ return bankers.indexOf(c)<0 && brokers.indexOf(c)<0; });
+  /* one bucket per contact — titles are free text, and "Private Bank Broker"
+     matching both regexes would list the same person under two ranks */
+  var bankers=[], brokers=[], rest=[];
+  items.forEach(function(c){
+    var t=c.title||'';
+    if(/broker/i.test(t)) brokers.push(c);
+    else if(/bank/i.test(t)) bankers.push(c);
+    else rest.push(c);
+  });
   if(!bankers.length&&!brokers.length) return items.map(contactCard).join('');
   var banks={}, order=[];
   bankers.forEach(function(c){
@@ -502,8 +508,14 @@ function genCard(o){
 var fsSel='', fsSug=[];
 function loadFindSchool(){
   // the address lookup covers the four boards we have an API for; the curated
-  // region list covers everywhere else (Toronto, Waterloo, …) — show both
-  Promise.all([call('fsboards'),cachedCall('schoolfinder').catch(function(){return null;})]).then(function(r){
+  // region list covers everywhere else (Toronto, Waterloo, …) — show both.
+  // freshOnly guards the whole pair: without it a slow reply repaints #content
+  // after the user has already moved to another screen. The inner catch must
+  // not swallow STALE_ERR, or it would defeat that guard.
+  freshOnly(Promise.all([
+    call('fsboards'),
+    cachedCallRaw('schoolfinder').catch(function(){ return null; })
+  ])).then(function(r){
     var d=r[0], sf=r[1];
     var boards=(d&&d.boards)||[];
     $('content').innerHTML='<div class="card wide"><div class="card-s">Pick a board, type the address, and see the assigned schools with their rankings.</div></div>'
@@ -910,7 +922,9 @@ function mdMonthOf(x){
   var iso=String(x.closingISO||''); var m=/^(\d{4})-(\d{2})/.exec(iso);
   if(m) return +m[2];
   var t=String(x.closing||''); var mm=/(\d{1,2})[\/-](\d{1,2})[\/-](\d{2,4})/.exec(t);
-  if(mm) return +mm[1];
+  /* the leading number is only a month if it can be one — a DD/MM/YYYY cell
+     would otherwise yield 15 and label the option MD_MONTHS[14], i.e. undefined */
+  if(mm){ var n=+mm[1]; if(n>=1&&n<=12) return n; var n2=+mm[2]; if(n2>=1&&n2<=12) return n2; }
   for(var i=0;i<12;i++) if(new RegExp('\\b'+MD_MONTHS[i],'i').test(t)) return i+1;
   return 0;
 }
@@ -922,6 +936,7 @@ function renderMyDeals(d){
   var tabs=[['deals','Deals'],['followups','Follow-ups'],['leads','Leads'],['meetings','Meetings'],['tickets','Tickets']]
     .filter(function(t){ return t[0]==='deals'||t[0]==='followups'||counts[t[0]]; });
   if(!tabs.some(function(t){return t[0]===mdTab;})) mdTab='deals';
+  mdFuShown={current:MD_FU_STEP,future:MD_FU_STEP};   // per payload, or the "N of M" hint never returns
   $('content').innerHTML=
      '<div class="card"><div class="card-t">Hi '+esc(WHO||'')+'</div><div class="card-s">'+counts.deals+' deals · '+nfu+' follow-ups</div><div class="lnkrow"><button class="lnk" onclick="signOut()">Sign out</button></div></div>'
     +'<div class="chips" id="mdTabs" style="margin-bottom:12px">'+tabs.map(function(t){
@@ -940,7 +955,7 @@ function paintMyDeals(){
   if(mdTab==='followups') return paintMDFollowups();
   if(mdTab==='leads') return paintMDList(MD.leads||[],['date','realtor','client','stage','source','notes'],'client','No leads.');
   if(mdTab==='meetings') return paintMDMeetings();
-  if(mdTab==='tickets') return paintMDList(MD.tickets||[],null,null,'No tickets.');
+  if(mdTab==='tickets') return paintMDList(MD.tickets||[],['document','status','raised','closed','notes','ticket_id'],'document','No tickets.');
 }
 function paintMDDeals(){
   var deals=MD.deals||MD.rows||[];
@@ -950,6 +965,9 @@ function paintMDDeals(){
   deals.forEach(function(x){ var m=mdMonthOf(x); if(m&&!seenM[m]){ seenM[m]=1; months.push(m); } });
   months.sort(function(a,b){return a-b;});
   if(statuses.indexOf(mdStatus)<0&&mdStatus!=='All') mdStatus='All';
+  /* a month carried over from a previous payload can hide every deal, and when
+     only one month is present there is no select on screen to clear it with */
+  if(mdMonth!=='All'&&months.indexOf(+mdMonth)<0) mdMonth='All';
   $('mdBody').innerHTML=
      '<div class="fbar">'
     +'<select id="mdStatus" aria-label="Filter by status"><option value="All"'+(mdStatus==='All'?' selected':'')+'>All statuses</option>'
