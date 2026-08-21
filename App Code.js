@@ -58,8 +58,6 @@ function headerRowFor_(k, t, o) { if (o) return Math.max(1, parseInt(o, 10) || 1
 var __FRESH = false;
 function cacheGet_(k) { if (__FRESH) return null; try { var h = CacheService.getScriptCache().get(k); return h ? JSON.parse(h) : null; } catch (e) { return null; } }
 function cachePut_(k, v) { try { var s = JSON.stringify(v); if (s.length < 95000) CacheService.getScriptCache().put(k, s, 900); } catch (e) {} }
-function requireAuth_(p) { return !!checkToken_(p.auth || p.authToken || ''); }
-function authErr_() { return { error: 'login required' }; }
 
 /* pull a URL from a cell: real hyperlink, run link, =HYPERLINK(), or bare URL */
 function cellUrl_(rt, formula, text) {
@@ -1361,19 +1359,11 @@ var BC_CFG = {
 };
 var BC_NOT_COVERED_CITIES = ['barrie','milton','halton hills','pickering','whitby','markham','richmond hill','burlington','caledon','oakville','ajax','kitchener','waterloo','cambridge'];
 
-function bcNorm_(s) { return String(s || '').toUpperCase().replace(/[.,#]/g, ' ').replace(/\s+/g, ' ').trim(); }
 function bcCityFromAddr_(addr) {
   var a = String(addr || '').toLowerCase();
   for (var slug in BC_CFG) { if (a.indexOf(BC_CFG[slug].name.toLowerCase()) >= 0) return slug; }
   for (var i = 0; i < BC_NOT_COVERED_CITIES.length; i++) if (a.indexOf(BC_NOT_COVERED_CITIES[i]) >= 0) return BC_NOT_COVERED_CITIES[i];
   return '';
-}
-function bcStreetPart_(addr) {
-  // take everything before the first comma, expand abbreviations, drop unit tokens
-  var first = String(addr || '').split(',')[0];
-  first = fsExpandAddr_(first);
-  first = first.replace(/\b(unit|apt|suite|ste|#)\s*\w+/ig, '').replace(/\s+/g, ' ').trim();
-  return first;
 }
 /* Resolve an ArcGIS item's FeatureServer query URL (cached). */
 var BC_TYPES = /^(ST|STREET|RD|ROAD|AVE|AV|AVENUE|DR|DRIVE|BLVD|BOULEVARD|CRES|CRESC|CRESCENT|CRT|CT|COURT|PL|PLACE|LN|LANE|HWY|HIGHWAY|TRL|TRAIL|TER|TERR|TERRACE|SQ|SQUARE|CIR|CIRC|CIRCLE|PKWY|PARKWAY|GDNS|GDN|GARDENS|GRV|GROVE|HTS|HEIGHTS|WAY|CLOSE|GATE|MEWS|GREEN|PATH|RUN|RIDGE|HILL|HOLLOW|VIEW|VALE|WALK|LANDING|CROSSING|COMMON|COMMONS|BAY|CIRCUIT)$/;
