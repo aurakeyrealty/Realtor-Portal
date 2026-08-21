@@ -1278,7 +1278,9 @@ var EX_MORE=[
   ['condoFee','Condo fee'],['potl','POTL fee'],['alarm','Alarm monitoring'],['lawnSnow','Lawn & snow'],
   ['other','Other']
 ];
-function exNum(id){ var el=$(id); if(!el) return 0; return parseFloat(String(el.value||'').replace(/[^0-9.\-]/g,''))||0; }
+/* no minus: every field here is a price, a rate or a monthly cost, and a
+   stray "-" would produce a plausible-looking total instead of an error */
+function exNum(id){ var el=$(id); if(!el) return 0; return Math.max(0, parseFloat(String(el.value||'').replace(/[^0-9.]/g,''))||0); }
 function exMoney(n){ return '$'+Math.round(n).toLocaleString('en-CA'); }
 function exField(key,label,unit,val){
   return '<label class="exrow"><span class="exlbl">'+esc(label)+(unit?' <i>'+esc(unit)+'</i>':'')+'</span>'
@@ -1298,10 +1300,10 @@ function loadExpenses(){
   $('content').innerHTML=
      '<div class="card wide"><div class="card-s">A full monthly carrying cost — mortgage with CMHC insurance, property tax, utilities and a maintenance reserve. Same calculation as the web version.</div></div>'
     +'<div class="exgrp">'+EX_CORE.map(function(f){ return exField(f[0],f[1],f[2],s[f[0]]); }).join('')
-    +'<label class="exrow"><span class="exlbl">Municipality</span><select id="ex_muni">'
+    +'<label class="exrow exwide"><span class="exlbl">Municipality</span><select id="ex_muni">'
       +AKX.municipalityNames().map(function(n){ return '<option'+(n===s.municipality?' selected':'')+'>'+esc(n)+'</option>'; }).join('')
     +'</select></label>'
-    +'<label class="exrow"><span class="exlbl">Property tax</span><select id="ex_taxMode">'
+    +'<label class="exrow exwide"><span class="exlbl">Property tax</span><select id="ex_taxMode">'
       +'<option value="price"'+(s.taxMode==='price'?' selected':'')+'>Estimate from price</option>'
       +'<option value="assessed"'+(s.taxMode==='assessed'?' selected':'')+'>From MPAC assessment</option>'
       +'<option value="amount"'+(s.taxMode==='amount'?' selected':'')+'>Enter the annual amount</option>'
@@ -1316,7 +1318,10 @@ function loadExpenses(){
     +'</div></details>'
     +'<div id="exOut"></div>';
   paintTaxExtra();
+  /* #ex_taxExtra is re-rendered on every mode change and wires its own field,
+     so skip it here — otherwise that input ends up with two input listeners */
   $('content').querySelectorAll('#content input, #content select').forEach(function(el){
+    if(el.closest('#ex_taxExtra')) return;
     el.addEventListener(el.tagName==='SELECT'||el.type==='checkbox'?'change':'input',function(){
       if(el.id==='ex_taxMode'){ EX_STATE.taxMode=el.value; paintTaxExtra(); }
       calcEx();
