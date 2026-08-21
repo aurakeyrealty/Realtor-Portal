@@ -212,4 +212,16 @@ body.gated .phone,body.gated .toTop,body.gated .drawer,body.gated .scrim{display
 .gate-go[disabled]{opacity:.55}
 .gate-err{min-height:1.5rem;padding-top:0.75rem;text-align:center;font-size:var(--fs-md);color:#F2A08D}
 .gate-note{text-align:center;color:rgba(255,255,255,.42);font-size:var(--fs-sm);margin:0.5rem 0 0}
+
+/* welcome toast — a sign-in only moment, so it announces itself and leaves */
+.toast{position:fixed;left:50%;transform:translateX(-50%) translateY(0.5rem);
+  bottom:calc(5.25rem + env(safe-area-inset-bottom));   /* clears the tab bar */
+  z-index:70;max-width:min(22rem,calc(100% - 2rem));
+  background:var(--ink);color:#fff;border:1px solid rgba(255,255,255,.14);
+  border-radius:999px;padding:0.625rem 1.125rem;font-size:var(--fs-md);font-weight:600;
+  text-align:center;box-shadow:0 6px 20px rgba(14,26,34,.28);
+  opacity:0;transition:opacity .22s ease,transform .22s ease;pointer-events:none}
+.toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
+.toast[hidden]{display:none}
+@media(prefers-reduced-motion:reduce){.toast{transition:none}}
 </style>

@@ -1598,6 +1598,7 @@ function tokenAlive(t){ var i=tokenIssued(t); return !!i && (Date.now()-i)<SESSI
 function showGate(msg){
   TOKEN=null;
   closeDrawer();
+  clearTimeout(TOAST_T); var tw=$('toast'); if(tw){ tw.classList.remove('on'); tw.hidden=true; }
   /* Renders already in flight would otherwise land after the gate goes up and
      repaint the last screen behind it; the seq bump makes freshOnly drop them. */
   RENDER_SEQ++;
@@ -1625,6 +1626,9 @@ function doLogin(){
     TOKEN=r.token; WHO=r.name||id; tokenSet(TOKEN,WHO);
     $('gate_pw').value='';
     hideGate(); paintNavUser(); route();
+    /* only on a real sign-in — a renewed session on launch is not an event
+       anyone needs told about */
+    toast('Welcome, '+firstName(WHO));
   }).catch(function(){
     btn.disabled=false; btn.textContent='Sign in';
     $('gate_err').textContent='Could not reach the server — check your connection.';
@@ -1634,6 +1638,24 @@ function doLogin(){
    screen is the one place a realtor reads them raw */
 function sentence(t){ t=String(t||'').trim(); return t?t.charAt(0).toUpperCase()+t.slice(1)+(/[.!?]$/.test(t)?'':'.'):''; }
 function paintNavUser(){ var el=$('drUser'); if(el) el.textContent=WHO?('Signed in as '+WHO):''; }
+/* Greet by first name — the sheet holds "Harvinder Babra", but nobody wants to
+   be welcomed by their full legal name. */
+function firstName(n){ return String(n||'').trim().split(/\s+/)[0]||''; }
+var TOAST_T=null;
+function toast(msg,ms){
+  var el=$('toast'); if(!el) return;
+  clearTimeout(TOAST_T);
+  el.textContent=msg; el.hidden=false;
+  /* Forcing layout between display:none and the class is what lets the
+     transition run. rAF would do it too, but it does not fire in a backgrounded
+     tab, and the toast would then never become visible at all. */
+  void el.offsetHeight;
+  el.classList.add('on');
+  TOAST_T=setTimeout(function(){
+    el.classList.remove('on');
+    TOAST_T=setTimeout(function(){ el.hidden=true; }, 250);   // after the fade
+  }, ms||3200);
+}
 function loadMyDeals(){
   if(!TOKEN){ showGate(); return; }
   freshOnly(call('mydeals',{auth:TOKEN})).then(function(d){
