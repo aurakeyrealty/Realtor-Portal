@@ -106,6 +106,7 @@ function dealsFind_(match) {
 /* ================= routing ================= */
 function doGet(e) {
   var p = (e && e.parameter) || {};
+  if (p.fresh) __FRESH = true;
   if (!p.action) {
     return HtmlService.createTemplateFromFile('App').evaluate()
       .setTitle('Aura Key')
@@ -1557,6 +1558,7 @@ function getBasementCoverage_() {
    ===================================================================== */
 function app(action, p) {
   p = p || {}; action = String(action || '');
+  if (p.fresh) __FRESH = true;
   switch (action) {
     case 'home':          return getHome_();
     case 'cities':        return getCities_();

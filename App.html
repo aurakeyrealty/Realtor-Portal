@@ -98,6 +98,7 @@ a{color:var(--blue)}
 .login-card{max-width:340px;margin:8px auto}
 .login-card input{width:100%;padding:12px 13px;border:1px solid var(--line);border-radius:8px;margin-bottom:10px}
 .avatar{width:44px;height:44px;border-radius:50%;object-fit:cover;background:var(--line);flex:none}
+.linklike{background:none;border:0;color:var(--blue);font:inherit;font-weight:600;padding:0;text-decoration:underline;cursor:pointer}
 </style>
 </head>
 <body>
@@ -155,6 +156,35 @@ var SUB={home:'Your team hub, contacts and events.',cities:'Projects and builder
 function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
 function $(id){return document.getElementById(id);}
 function call(action,params){return new Promise(function(res,rej){google.script.run.withSuccessHandler(res).withFailureHandler(rej).app(action,params||{});});}
+/* read-through cache: instant back-navigation, offline fallback, manual refresh */
+var MEM={}, FRESH=false, RENDER_FRESH=false, CACHE_TTL=600000;
+function ckey(a,p){ return a+':'+JSON.stringify(p||{}); }
+function cachedCall(action,params){
+  var k=ckey(action,params), fresh=RENDER_FRESH;
+  if(!fresh){
+    var m=MEM[k];
+    if(m && Date.now()-m.at<CACHE_TTL) return Promise.resolve(m.data);
+  }
+  var p=params||{};
+  if(fresh){ p={}; for(var kk in params) p[kk]=params[kk]; p.fresh=1; }
+  return call(action,p).then(function(d){
+    MEM[k]={data:d,at:Date.now()};
+    try{ var sj=JSON.stringify({data:d,at:Date.now()}); if(sj.length<200000) localStorage.setItem('akc_'+k,sj); }catch(e){}
+    return d;
+  }).catch(function(err){
+    var m2=MEM[k]; if(m2){ m2.data.__offline=m2.at; return m2.data; }
+    try{ var raw=localStorage.getItem('akc_'+k); if(raw){ var o=JSON.parse(raw); o.data.__offline=o.at; return o.data; } }catch(e2){}
+    throw err;
+  });
+}
+function refreshView(){ FRESH=true; route(); }
+function ago(t){ var ms=Date.now()-(typeof t==='number'?t:new Date(t).getTime()); if(isNaN(ms)||ms<0) return ''; var m=Math.round(ms/60000); if(m<1) return 'just now'; if(m<60) return m+'m ago'; var h=Math.round(m/60); return h<24?h+'h ago':Math.round(h/24)+'d ago'; }
+function stamp(d){
+  if(!d) return '';
+  var off=d.__offline?'<div class="warn" style="margin:0 0 12px">Offline — showing saved data from '+esc(ago(d.__offline)||'earlier')+'.</div>':'';
+  var up=d.updated?'<div class="card-s" style="margin:0 2px 12px">Updated '+esc(ago(d.updated)||'just now')+' · <button class="linklike" onclick="refreshView()">Refresh</button></div>':'';
+  return off+up;
+}
 function isUrl(v){return /^https?:\/\//i.test(String(v||''));}
 function host(u){try{return String(u).replace(/^https?:\/\//,'').replace(/^www\./,'').split('/')[0];}catch(e){return u;}}
 /* website-parity helpers */
@@ -188,6 +218,7 @@ function go(v,arg){
 }
 function route(){
   closeDrawer();
+  RENDER_FRESH=FRESH; FRESH=false;
   var h=(location.hash||'').replace(/^#/,''), parts=h.split('/');
   var v=parts[0]||'home', arg=parts.length>1?decodeURIComponent(parts.slice(1).join('/')):null;
   if(!LOAD[v]){ v='home'; arg=null; }
@@ -208,8 +239,8 @@ function mailBtn(e){ e=String(e||'').trim(); return e?'<a class="lnk" href="mail
 
 var homeCat=null, HOME=null;
 function loadHome(){
-  call('home').then(function(d){
-    HOME=d||{}; var h=''; var inst=installHtml(); if(inst) h+=inst;
+  cachedCall('home').then(function(d){
+    HOME=d||{}; var h=stamp(d); var inst=installHtml(); if(inst) h+=inst;
     var focus=HOME.focus||[];
     if(focus.length){ h+='<div class="sec-h">★ Focus projects · '+focus.length+'</div>'; h+=focus.map(function(p){
       var meta=[p.builder,p.type,p.occupancy].filter(Boolean).join(' · ');
@@ -246,19 +277,18 @@ function paintHomeContacts(groups){
 }
 function contactCards(rows){ return rows.map(function(c){ var sub=[c.title,c.company].filter(Boolean).join(' · '); return '<div class="card"><div class="card-t">'+esc(c.name||c.company||'Contact')+'</div>'+(sub?'<div class="card-s">'+esc(sub)+'</div>':'')+'<div class="lnkrow">'+telBtn(c.direct||c.office||c.phone)+mailBtn(c.email)+'</div></div>'; }).join(''); }
 
-var CITY_DATA=[], CITY_FOCUS={}, cityAlpha='ALL', cityFocusOnly=false;
+var CITY_DATA=[], CITY_FOCUS={}, cityAlpha='ALL', cityFocusOnly=false, cityQ='';
 function loadCities(){
-  Promise.all([call('citycounts'),call('focus')]).then(function(r){
+  Promise.all([cachedCall('citycounts'),cachedCall('focus')]).then(function(r){
     var cc=r[0]||{}, fo=r[1]||{};
     CITY_DATA=(cc.cities||[]).map(function(c){ return (typeof c==='string')?{city:c,count:0}:{city:c.city||c.name||c.tab, count:c.count||c.projects||0}; });
     CITY_FOCUS={}; ((fo.rows)||[]).forEach(function(p){ var c=(p.city||'').toUpperCase(); if(c) CITY_FOCUS[c]=(CITY_FOCUS[c]||0)+1; });
-    cityAlpha='ALL'; cityFocusOnly=false;
-    $('content').innerHTML='<div class="fbar"><input id="citySearch" placeholder="Search a city…"></div>'
-      +'<div class="seg"><button class="on" id="cAll">All</button><button id="cFocus">★ Focus only</button></div>'
+    $('content').innerHTML=stamp(cc)+'<div class="fbar"><input id="citySearch" placeholder="Search a city…" value="'+esc(cityQ)+'"></div>'
+      +'<div class="seg"><button id="cAll" class="'+(cityFocusOnly?'':'on')+'">All</button><button id="cFocus" class="'+(cityFocusOnly?'on':'')+'">★ Focus only</button></div>'
       +'<div class="chips" id="alphaRow" style="margin-bottom:12px"></div>'
       +'<div class="card-s" id="cityCount" style="margin:0 2px 12px"></div>'
       +'<div id="cityGrid"></div>';
-    $('citySearch').addEventListener('input',renderCities);
+    $('citySearch').addEventListener('input',function(){cityQ=this.value;renderCities();});
     $('cAll').addEventListener('click',function(){cityFocusOnly=false;$('cAll').classList.add('on');$('cFocus').classList.remove('on');renderCities();});
     $('cFocus').addEventListener('click',function(){cityFocusOnly=true;$('cFocus').classList.add('on');$('cAll').classList.remove('on');renderCities();});
     renderCities();
@@ -266,7 +296,7 @@ function loadCities(){
 }
 function focusCount(city){ return CITY_FOCUS[(city||'').toUpperCase()]||0; }
 function renderCities(){
-  var q=(($('citySearch')||{}).value||'').trim().toLowerCase();
+  var q=cityQ.trim().toLowerCase();
   var letters=['ALL'].concat('ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split(''));
   $('alphaRow').innerHTML=letters.map(function(L){ return '<button class="citychip'+(cityAlpha===L?' on':'')+'" style="padding:6px 10px" data-l="'+L+'">'+(L==='ALL'?'All':L)+'</button>'; }).join('');
   $('alphaRow').querySelectorAll('.citychip').forEach(function(b){ b.addEventListener('click',function(){ cityAlpha=b.dataset.l; renderCities(); }); });
@@ -289,31 +319,31 @@ function backBtn(view,label){ return '<button class="lnk" onclick="go(\''+view+'
 function loadCityDetail(name){
   if(!name){ go('cities'); return; }
   var back=backBtn('cities','All cities');
-  call('city',{name:name}).then(function(d){
+  cachedCall('city',{name:name}).then(function(d){
     var rows=(d&&d.rows)||[];
     if(!rows.length){ $('content').innerHTML=back+'<div class="empty">No projects for '+esc(name)+'.</div>'; return; }
     var focus=rows.filter(function(p){return /focus/i.test(p.status||'');}), rest=rows.filter(function(p){return !/focus/i.test(p.status||'');});
     var ordered=focus.concat(rest);
-    $('content').innerHTML=back+'<div class="sec-h">'+esc(name)+' — '+rows.length+' projects</div>'+ordered.map(function(p){
+    $('content').innerHTML=back+stamp(d)+'<div class="sec-h">'+esc(name)+' — '+rows.length+' projects</div>'+ordered.map(function(p){
       var foc=/focus/i.test(p.status||'');
       return '<div class="card">'+(foc?'<span class="pill focus">Focus</span>':'')+'<div class="card-t">'+esc(p.name||p.project||'Project')+'</div>'+(p.status&&!foc?'<div class="card-s">'+esc(p.status)+'</div>':'')+'<div class="lnkrow">'+linkBtn('Builder',p.broker_url)+linkBtn('Drive',p.drive_url)+linkBtn('Website',p.website_url)+'</div></div>';
     }).join('');
   }).catch(function(){ $('content').innerHTML=back+'<div class="err">Could not load '+esc(name)+'.</div>'; });
 }
 
-var AL_DATA=[], alSection='all';
+var AL_DATA=[], alSection='all', alQ='';
 function loadListings(){
-  call('listings').then(function(d){
-    AL_DATA=(d&&d.rows)||[]; alSection='all';
+  cachedCall('listings').then(function(d){
+    AL_DATA=(d&&d.rows)||[];
     if(!AL_DATA.length){ $('content').innerHTML='<div class="empty">No active listings.</div>'; return; }
-    $('content').innerHTML='<div class="fbar"><input id="alq" placeholder="Search listings…"></div><div class="chips" id="alPills" style="margin-bottom:12px"></div><div class="card-s" id="alCount" style="margin:0 2px 12px"></div><div id="alOut"></div>';
-    $('alq').addEventListener('input',renderAL);
+    $('content').innerHTML=stamp(d)+'<div class="fbar"><input id="alq" placeholder="Search listings…" value="'+esc(alQ)+'"></div><div class="chips" id="alPills" style="margin-bottom:12px"></div><div class="card-s" id="alCount" style="margin:0 2px 12px"></div><div id="alOut"></div>';
+    $('alq').addEventListener('input',function(){alQ=this.value;renderAL();});
     renderAL();
   }).catch(fail);
 }
 function alSectionOf(l){ return l.exclusive?'For Sale':(l.section||'Other'); }
 function renderAL(){
-  var q=(($('alq')||{}).value||'').trim().toLowerCase();
+  var q=alQ.trim().toLowerCase();
   var secs=[],seen={}; AL_DATA.forEach(function(l){ var k=alSectionOf(l); if(!seen[k]){seen[k]=1;secs.push(k);} });
   var rows=AL_DATA.filter(function(l){ if(alSection!=='all'&&alSectionOf(l)!==alSection)return false; if(!q)return true; return (l.property+' '+(l.status||'')+' '+(l.section||'')).toLowerCase().indexOf(q)>=0; });
   rows.sort(function(a,b){return (b.exclusive?1:0)-(a.exclusive?1:0);});
@@ -331,22 +361,23 @@ function renderAL(){
 function loadBuilders(){ rowsPage('builders', function(r){
   return '<div class="card"><div class="card-t">'+esc(r.name||'Builder')+'</div>'+(r.project?'<div class="card-s">'+esc(r.project)+'</div>':'')+kv('Rep',r.rep)+'<div class="lnkrow">'+telBtn(r.phone)+mailBtn(r.email)+linkBtn('Builder',r.broker_url)+'</div></div>';
 }); }
-function loadContractors(){ call('contractors').then(function(d){
+function loadContractors(){ cachedCall('contractors').then(function(d){
   var rows=(d&&d.rows)||[]; if(!rows.length){ $('content').innerHTML='<div class="empty">No contacts.</div>'; return; }
   var groups={},order=[]; rows.forEach(function(r){ var c=r.category||'Other'; if(!groups[c]){groups[c]=[];order.push(c);} groups[c].push(r); });
-  $('content').innerHTML=order.map(function(c){ return '<div class="sec-h">'+esc(c)+'</div>'+groups[c].map(function(r){
+  $('content').innerHTML=stamp(d)+order.map(function(c){ return '<div class="sec-h">'+esc(c)+'</div>'+groups[c].map(function(r){
     return '<div class="card"><div class="card-t">'+esc(r.name||'Contact')+'</div>'+(r.contact?'<div class="card-s">'+esc(r.contact)+'</div>':'')+kv('Area',r.area)+'<div class="lnkrow">'+telBtn(r.phone)+mailBtn(r.email)+'</div></div>';
   }).join(''); }).join('');
 }).catch(fail); }
-function rowsPage(action,cardFn){ call(action).then(function(d){ var rows=(d&&d.rows)||[]; $('content').innerHTML=rows.length?rows.map(cardFn).join(''):'<div class="empty">Nothing here yet.</div>'; }).catch(fail); }
+function rowsPage(action,cardFn){ cachedCall(action).then(function(d){ var rows=(d&&d.rows)||[]; $('content').innerHTML=stamp(d)+(rows.length?rows.map(cardFn).join(''):'<div class="empty">Nothing here yet.</div>'); }).catch(fail); }
 
+var schoolQ='';
 function loadSchools(){
-  call('schools').then(function(d){
+  cachedCall('schools').then(function(d){
     var rows=(d&&d.rows)||[];
     if(!rows.length){ $('content').innerHTML='<div class="empty">No rankings.</div>'; return; }
     var norm=rows.map(function(r){ return { school:pick(r,['school','name']), level:pick(r,['level','panel']), board:pick(r,['board']), city:pick(r,['city','municipality']), community:pick(r,['community','area']), score:pick(r,['score','rating']), rank:pick(r,['rank','ranking']) }; });
     norm.sort(function(a,b){ return scoreNum(b.score)-scoreNum(a.score); });
-    $('content').innerHTML='<div class="fbar"><input id="sq" placeholder="Filter by school, city or board…"></div><div class="card-s" id="sCount" style="margin:0 2px 12px"></div><div id="slist"></div>';
+    $('content').innerHTML=stamp(d)+'<div class="fbar"><input id="sq" placeholder="Filter by school, city or board…" value="'+esc(schoolQ)+'"></div><div class="card-s" id="sCount" style="margin:0 2px 12px"></div><div id="slist"></div>';
     function draw(q){ q=(q||'').toLowerCase();
       var f=norm.filter(function(s){ return !q||(s.school+' '+s.city+' '+s.board+' '+s.community).toLowerCase().indexOf(q)>=0; });
       $('sCount').textContent=f.length+(f.length===1?' school':' schools');
@@ -355,7 +386,7 @@ function loadSchools(){
         return '<div class="card" style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start"><div style="min-width:0"><div class="card-t">'+esc(s.school)+'</div>'+(sub?'<div class="card-s">'+esc(sub)+'</div>':'')+'</div><div style="text-align:right;flex:none">'+scoreBadge(s.score)+(s.rank?'<div style="font-size:11px;color:var(--mute);margin-top:4px">'+esc(s.rank)+'</div>':'')+'</div></div>';
       }).join('')||'<div class="empty">No match.</div>';
     }
-    $('sq').addEventListener('input',function(){draw(this.value);}); draw('');
+    $('sq').addEventListener('input',function(){schoolQ=this.value;draw(schoolQ);}); draw(schoolQ);
   }).catch(fail);
 }
 function genCard(o){
@@ -416,7 +447,7 @@ function fsPaint(res){
 
 function loadCrime(slug){
   if(slug) return loadCrimeDetail(slug);
-  call('crimecities').then(function(d){
+  cachedCall('crimecities').then(function(d){
     var cities=(d&&(d.cities||d.rows))||[];
     var list=cities.map(function(c){return c.slug?c:{slug:String(c).toLowerCase(),name:c};});
     $('content').innerHTML='<div class="card"><div class="card-s">Pick a city to see its recorded crime figures.</div></div><div class="chips" id="crimechips"></div>';
@@ -488,7 +519,7 @@ function calcEx(){
 }
 
 function loadGuide(){
-  call('guiderealtors').then(function(d){
+  cachedCall('guiderealtors').then(function(d){
     var r=(d&&d.realtors)||[];
     var h='<div class="card"><div class="card-s">Pick the realtor presenting, then walk the client through the guide.</div></div>';
     h+=r.map(function(x){ return '<div class="card" style="display:flex;align-items:center;gap:12px">'+(x.photo?'<img class="avatar" src="'+esc(x.photo)+'">':'<div class="avatar"></div>')+'<div class="card-t" style="margin:0">'+esc(x.name)+'</div></div>'; }).join('');
@@ -498,11 +529,11 @@ function loadGuide(){
 }
 
 function loadCallnight(){
-  call('callnight').then(function(d){
+  cachedCall('callnight').then(function(d){
     if(!d||d.ok===false){ $('content').innerHTML='<div class="err">'+esc((d&&d.error)||'No call night data.')+'</div>'; return; }
     var dates=(d.dates||[]).slice(0,1), realtors=d.realtors||[], att=d.attendance||{};
     var latest=dates[0];
-    var h='<div class="card"><div class="card-t">Latest: '+esc(latest||'—')+'</div><div class="card-s">'+realtors.length+' realtors tracked</div></div>';
+    var h=stamp(d)+'<div class="card"><div class="card-t">Latest: '+esc(latest||'—')+'</div><div class="card-s">'+realtors.length+' realtors tracked</div></div>';
     if(latest){ var present=realtors.filter(function(n){return att[latest]&&att[latest][n];}); h+='<div class="sec-h">Present ('+present.length+')</div><div class="chips">'+present.map(function(n){return '<span class="citychip">'+esc(n)+'</span>';}).join('')+'</div>'; }
     $('content').innerHTML=h;
   }).catch(fail);
@@ -515,22 +546,22 @@ function loadLeaderboard(){
 }
 function drawLB(period){
   $('lbRes').innerHTML='<div class="loading">Loading…</div>';
-  call('leaderboard',{period:period}).then(function(d){
+  cachedCall('leaderboard',{period:period}).then(function(d){
     if(!d||d.ok===false){ $('lbRes').innerHTML='<div class="empty">'+esc((d&&d.error)||'No data.')+'</div>'; return; }
     var rows=d.agents||d.rows||d.leaders||[];
     if(!rows.length){ $('lbRes').innerHTML='<div class="empty">No data.</div>'; return; }
     function mins(s){ s=Number(s)||0; if(!s) return '0m'; var m=Math.round(s/60); return m>=60?(Math.floor(m/60)+'h '+(m%60)+'m'):(m+'m'); }
-    $('lbRes').innerHTML=rows.map(function(r,i){
+    $('lbRes').innerHTML=stamp(d)+rows.map(function(r,i){
       return '<div class="card"><div class="card-t">'+(i+1)+'. '+esc(r.name||r.agent||'—')+'</div>'+kv('Calls',r.calls)+kv('Conversations',(r.conv!=null?r.conv:(r.conversations||0)))+kv('Talk time',mins(r.talkSec))+'</div>';
     }).join('');
   }).catch(fail);
 }
 
 function loadResources(){
-  call('resources').then(function(d){
+  cachedCall('resources').then(function(d){
     var cats=(d&&d.categories)||[];
     if(!cats.length){ $('content').innerHTML='<div class="empty">No resources.</div>'; return; }
-    $('content').innerHTML=cats.map(function(c){
+    $('content').innerHTML=stamp(d)+cats.map(function(c){
       return '<div class="sec-h">'+esc(c.category)+'</div>'+(c.items||[]).map(function(it){
         return '<div class="card"><div class="card-t">'+esc(it.label||'Item')+'</div>'+(it.desc?'<div class="card-s">'+esc(it.desc)+'</div>':'')+'<div class="lnkrow">'+linkBtn(it.type||'Open',it.url)+(it.subs||[]).map(function(s){return linkBtn(s.name,s.url);}).join('')+'</div></div>';
       }).join('');
@@ -539,20 +570,20 @@ function loadResources(){
 }
 
 function loadWebsites(){
-  call('websites').then(function(d){
+  cachedCall('websites').then(function(d){
     var secs=(d&&d.sections)||[];
     if(!secs.length){ $('content').innerHTML='<div class="empty">No websites.</div>'; return; }
-    $('content').innerHTML=secs.map(function(s){
+    $('content').innerHTML=stamp(d)+secs.map(function(s){
       return '<div class="sec-h">'+esc(s.section)+'</div><div class="card">'+(s.items||[]).map(function(it){ return '<div class="kv"><a class="vv" href="'+esc(it.url)+'" target="_blank">'+esc(it.name||host(it.url))+'</a></div>'; }).join('')+'</div>';
     }).join('');
   }).catch(fail);
 }
 
 function loadFaqs(){
-  call('faqs').then(function(d){
+  cachedCall('faqs').then(function(d){
     var rows=(d&&d.rows)||[];
     if(!rows.length){ $('content').innerHTML='<div class="empty">No FAQs.</div>'; return; }
-    $('content').innerHTML=rows.map(function(r){
+    $('content').innerHTML=stamp(d)+rows.map(function(r){
       return '<details class="card"><summary style="font-weight:600;color:var(--ink);cursor:pointer;list-style:none">'+esc(r.question||'Question')+'</summary><div style="font-size:13.5px;color:var(--ink2);margin-top:8px;line-height:1.55">'+esc(r.answer||'')+(r.source?'<div class="lnkrow">'+linkBtn('Source',r.source)+'</div>':'')+'</div></details>';
     }).join('');
   }).catch(fail);
@@ -616,7 +647,7 @@ function signOut(){ TOKEN=null;WHO=null; try{localStorage.removeItem('ak_token')
 function copyText(t){ try{ if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(t);return;} }catch(e){} var ta=document.createElement('textarea');ta.value=t;ta.style.position='fixed';ta.style.opacity='0';document.body.appendChild(ta);ta.select();try{document.execCommand('copy');}catch(e){}document.body.removeChild(ta); }
 function installHtml(){
   try{ var st=window.navigator.standalone||(window.matchMedia&&window.matchMedia('(display-mode: standalone)').matches); if(st) return ''; if(localStorage.getItem('ak_install')==='1') return ''; }catch(e){}
-  var ua=navigator.userAgent||'', tip=/iPhone|iPad|iPod/i.test(ua)?'Tap Share, then “Add to Home Screen”.':(/Android/i.test(ua)?'Tap the ⋮ menu, then “Add to Home screen”.':'Open on your phone to add it to your home screen.');
+  var ua=navigator.userAgent||'', tip=/iPhone|iPad|iPod/i.test(ua)?'Tap Share, then “Add to Home Screen”.':(/Android/i.test(ua)?'Tap the ⋮ menu, then “Add to Home screen” — it opens in your browser.':'Open on your phone to add it to your home screen.');
   return '<div class="install" id="inst"><button class="x" onclick="dismissInstall()">&times;</button><b>Add to your home screen.</b> '+tip+'</div>';
 }
 function dismissInstall(){ try{localStorage.setItem('ak_install','1');}catch(e){} var el=$('inst'); if(el)el.style.display='none'; }
