@@ -20,6 +20,8 @@ Object.defineProperty(window.google.script, 'run', { get: function () {
     withSuccessHandler: function (f) { ok = f; return chain; },
     withFailureHandler: function (f) { bad = f; return chain; },
     app: function (action, p) {
+      // V1 deployment predates doGet->app() delegation; alias until the new server code ships
+      if (action === 'schools') action = 'getSchools';
       var q = new URLSearchParams(Object.assign({ action: action }, p || {}));
       fetch('/api?' + q.toString())
         .then(function (r) { return r.json(); })

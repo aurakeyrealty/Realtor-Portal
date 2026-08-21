@@ -116,49 +116,14 @@ function doGet(e) {
   if (API_TOKEN && p.token !== API_TOKEN) return json_({ error: 'unauthorized' });
   var a = p.action || '';
 
+  // doGet-only actions
   if (a === 'tabs') { var o = {}; Object.keys(ALLOW).forEach(function (k) { o[k] = ALLOW[k].slice(); }); return json_({ sheets: o }); }
   if (a === 'tab')   return json_(readTab_(p.name || '', p.sheet || '', p.headerRow || ''));
-  if (a === 'login') return json_(handleLogin_(p));
-
-  // public reference pages
-  if (a === 'getSchools')  return json_(readTab_('School Rankings', 'main', ''));   // rankings page = School Rankings tab
-  if (a === 'getRankings') return json_(readTab_('School Rankings', 'main', ''));
-  if (a === 'contacts')    return json_(getContacts_());
-  if (a === 'resources')   return json_(getResources_());
-  if (a === 'contractors') return json_(getContractors_());
-  if (a === 'websites')    return json_(getWebsites_());
-  if (a === 'cities')      return json_(getCities_());
-
-  // All reference pages are OPEN (team-only app). Full data, including broker
-  // logins/passwords. The ONLY login-gated areas are My Deals and Bootcamp.
-  if (a === 'home')        return json_(getHome_());
-  if (a === 'focus')       return json_(getFocus_());
-  if (a === 'guiderealtors') return json_(getGuideRealtors_());
-  if (a === 'citycounts')  return json_(getCityCounts_());
-  if (a === 'mydeals')     return json_(getMyDealsPayload_(p));       // login: &auth=<token>
-  if (a === 'bootcamp')    return json_(getBootcampPayload_(p));      // login: &auth=<token>&week=N
   if (a === 'bootcampreview') return json_(bootcampReview_(p));       // admin token only
-  if (a === 'city')        return json_(getProjects_(p.name));
-  if (a === 'builders')    return json_(getBuilders_());
-  if (a === 'listings')    return json_(getListings_());
-  if (a === 'leaderboard') return json_(getLeaderboard_(p.period));
-  if (a === 'meetings')    return json_(getMeetingsLeaderboard_(p.period));
-  if (a === 'faqs')        return json_(getFaqs_());
-  if (a === 'vacations')   return json_(getVacations_());
-  if (a === 'callnight')   return json_(getCallNight_());
-  if (a === 'schoolfinder')return json_(getSchoolFinder_());
-  if (a === 'basement')    return json_(getBasement_(p.addr || p.address));
-  if (a === 'basementcoverage') return json_(getBasementCoverage_());
-  // server-fetch pages (external APIs proxied)
-  if (a === 'ltb')         return json_(getLTB_(p.q || p.query, p.offset));
-  if (a === 'crime')       return json_(getCrimeCity_(p.slug || p.city));
-  if (a === 'crimecities') return json_(getCrimeCities_());
-  if (a === 'fsboards')    return json_({ ok: true, boards: fsBoards_() });
-  if (a === 'fssuggest')   return json_({ ok: true, items: fsSuggest_(p.board, p.q || p.text) });
-  if (a === 'fslookup')    return json_(fsLookup_(p.board, p.addr || p.address, p.num || p.houseNumber));
-  if (a === 'fsschools')   return json_(fsSchools_(p.board, p.id || p.addressId, p.label || p.addressLabel, p.num || p.houseNumber));
 
-  return json_({ error: 'unknown action' });
+  // Everything else goes through app()'s switch — ONE dispatch table, no drift.
+  // (All reference pages are OPEN, team-only app; login gates My Deals + Bootcamp.)
+  return json_(app(a, p));
 }
 
 function doPost(e) {
