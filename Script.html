@@ -170,7 +170,7 @@ function loadHome(){
       return '<div class="card"><span class="pill focus">Focus</span><div class="card-t">'+esc(p.project||p.name||'Project')+'</div>'+(p.city?'<div class="card-s">'+esc(p.city)+(meta?' · '+esc(meta):'')+'</div>':(meta?'<div class="card-s">'+esc(meta)+'</div>':''))+'<div class="lnkrow">'+linkBtn('Builder',p.broker_url)+linkBtn('Drive',p.drive_url)+linkBtn('Website',p.website_url)+'</div></div>';
     }).join(''); }
     if(events.length){ h+='<div class="sec-h" id="sec-events">Upcoming</div>'; h+=events.map(function(ev){
-      return '<div class="card"><div class="card-t">'+esc(ev.title||ev.name||ev.event||'Event')+'</div>'+(ev.date||ev.when?'<div class="card-s">'+esc(ev.date||ev.when)+'</div>':'')+(ev.desc||ev.detail||ev.body?'<div style="font-size:13.5px;color:var(--ink2);margin-top:8px">'+esc(ev.desc||ev.detail||ev.body)+'</div>':'')+'</div>';
+      return '<div class="card"><div class="card-t">'+esc(ev.title||ev.name||ev.event||'Event')+'</div>'+(ev.date||ev.when?'<div class="card-s">'+esc(ev.date||ev.when)+'</div>':'')+(ev.desc||ev.detail||ev.body?'<div style="font-size:var(--fs-md);color:var(--ink2);margin-top:8px">'+esc(ev.desc||ev.detail||ev.body)+'</div>':'')+'</div>';
     }).join(''); }
     if(groups.order.length){
       h+='<div class="sec-h" id="sec-contacts">Contacts</div><div class="chips" id="homeCats"></div><div id="homeContacts" style="margin-top:12px"></div>';
@@ -197,7 +197,7 @@ function paintHomeContacts(groups){
   var items=(groups.g[homeCat]||{items:[]}).items;
   $('homeContacts').innerHTML=items.map(function(c){
     var sub=[c.title,c.company].filter(Boolean).join(' · ');
-    return '<div class="card" style="display:flex;gap:12px;align-items:flex-start"><span class="avatar" style="width:38px;height:38px;display:grid;place-items:center;font-family:var(--f-disp);font-weight:700;font-size:13.5px;color:var(--blue);background:var(--blue-soft)">'+esc(initials(c.name||c.company))+'</span><div style="min-width:0;flex:1"><div class="card-t" style="margin:0">'+esc(c.name||c.company||'—')+'</div>'+(sub?'<div class="card-s">'+esc(sub)+'</div>':'')+'<div class="lnkrow">'+telBtn(c.direct||c.office||c.phone)+mailBtn(c.email)+'</div></div></div>';
+    return '<div class="card" style="display:flex;gap:12px;align-items:flex-start"><span class="avatar" style="width:38px;height:38px;display:grid;place-items:center;font-family:var(--f-disp);font-weight:700;font-size:var(--fs-md);color:var(--blue);background:var(--blue-soft)">'+esc(initials(c.name||c.company))+'</span><div style="min-width:0;flex:1"><div class="card-t" style="margin:0">'+esc(c.name||c.company||'—')+'</div>'+(sub?'<div class="card-s">'+esc(sub)+'</div>':'')+'<div class="lnkrow">'+telBtn(c.direct||c.office||c.phone)+mailBtn(c.email)+'</div></div></div>';
   }).join('')||'<div class="empty">No contacts in this group.</div>';
 }
 
@@ -276,7 +276,7 @@ function renderAL(){
   $('alOut').innerHTML=rows.length?rows.map(function(l){
     var tone=listTone(l), label=l.exclusive?'Exclusive':(l.status||l.section||'Listing');
     return '<div class="card"><span class="pill" style="background:'+tone[0]+';color:'+tone[1]+'">'+esc(label)+'</span>'+(l.section&&!l.exclusive?' <span class="pill">'+esc(l.section)+'</span>':'')
-      +'<div class="card-t">'+esc(l.property||'Listing')+'</div>'+(l.price?'<div style="font-family:var(--f-disp);font-weight:600;color:var(--blue);font-size:15px;margin:2px 0">'+esc(money(l.price))+'</div>':'')
+      +'<div class="card-t">'+esc(l.property||'Listing')+'</div>'+(l.price?'<div style="font-family:var(--f-disp);font-weight:600;color:var(--blue);font-size:var(--fs-base);margin:2px 0">'+esc(money(l.price))+'</div>':'')
       +kv('MLS',l.mls)+kv('Agents',l.agents)+kv('Showing',l.showing)+kv('Notice',l.notice)+'<div class="lnkrow">'+linkBtn('Open listing',l.link)+'</div></div>';
   }).join(''):'<div class="empty">No listings match that.</div>';
 }
@@ -304,7 +304,7 @@ function loadSchools(){
     var LIMIT=200;
     function cardHtml(s){
       var sub=[s.level,s.board,s.city,s.community].filter(Boolean).join(' · ');
-      return '<div class="card" style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start"><div style="min-width:0"><div class="card-t">'+esc(s.school)+'</div>'+(sub?'<div class="card-s">'+esc(sub)+'</div>':'')+'</div><div style="text-align:right;flex:none">'+scoreBadge(s.score)+(s.rank?'<div style="font-size:12px;color:var(--mute);margin-top:4px">Rank '+esc(s.rank)+'</div>':'')+'</div></div>';
+      return '<div class="card" style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start"><div style="min-width:0"><div class="card-t">'+esc(s.school)+'</div>'+(sub?'<div class="card-s">'+esc(sub)+'</div>':'')+'</div><div style="text-align:right;flex:none">'+scoreBadge(s.score)+(s.rank?'<div style="font-size:var(--fs-sm);color:var(--mute);margin-top:4px">Rank '+esc(s.rank)+'</div>':'')+'</div></div>';
     }
     function counts(f,shownLen){ $('sCount').textContent=f.length>shownLen?('Showing top '+shownLen+' of '+f.length+' schools — search to narrow'):(f.length+(f.length===1?' school':' schools')); }
     function moreBtn(){ return '<button class="gobtn" style="width:100%;padding:13px" id="sMore">Show 200 more</button>'; }
@@ -343,7 +343,7 @@ function loadFindSchool(){
       +'<div class="chips" id="fsBoards" style="margin-bottom:12px"></div>'
       +'<div class="fbar"><input id="fsAddr" placeholder="12 Queen St, Brampton" autocomplete="off"><button class="gobtn" onclick="fsGo()">Search</button></div>'
       +'<div id="fsSug" class="card" style="display:none;padding:6px 0"></div>'
-      +'<div id="fsHint" style="font-size:12px;color:var(--mute);margin:2px 2px 12px"></div><div id="fsOut"></div>';
+      +'<div id="fsHint" style="font-size:var(--fs-sm);color:var(--mute);margin:2px 2px 12px"></div><div id="fsOut"></div>';
     $('fsBoards').innerHTML=boards.map(function(b){ return '<button class="citychip" data-id="'+esc(b.id)+'" data-neednum="'+(b.needsNumber?1:0)+'">'+esc(b.name)+'</button>'; }).join('');
     $('fsBoards').querySelectorAll('.citychip').forEach(function(b){ b.addEventListener('click',function(){ fsSel=b.dataset.id; $('fsBoards').querySelectorAll('.citychip').forEach(function(x){x.classList.toggle('on',x.dataset.id===fsSel);}); }); });
     if(boards[0]){ fsSel=boards[0].id; $('fsBoards').querySelectorAll('.citychip')[0].classList.add('on'); }
@@ -379,7 +379,7 @@ function fsPaint(res){
   var head='<div class="sec-h">'+arr.length+' school'+(arr.length===1?'':'s')+' · '+esc(res.matched||'')+(res.board?' · '+esc(res.board):'')+'</div>';
   $('fsOut').innerHTML=head+(arr.length?arr.map(function(s){
     var sub=[s.level||s.type,s.city,s.community,s.grades].filter(Boolean).join(' · ');
-    return '<div class="card" style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start"><div style="min-width:0"><div class="card-t">'+esc(s.school)+'</div>'+(sub?'<div class="card-s">'+esc(sub)+'</div>':'')+'</div><div style="text-align:right;flex:none">'+(s.score?scoreBadge(s.score):'')+(s.rank?'<div style="font-size:11px;color:var(--mute);margin-top:4px">'+esc(s.rank)+'</div>':'')+'</div></div>';
+    return '<div class="card" style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start"><div style="min-width:0"><div class="card-t">'+esc(s.school)+'</div>'+(sub?'<div class="card-s">'+esc(sub)+'</div>':'')+'</div><div style="text-align:right;flex:none">'+(s.score?scoreBadge(s.score):'')+(s.rank?'<div style="font-size:var(--fs-xs);color:var(--mute);margin-top:4px">'+esc(s.rank)+'</div>':'')+'</div></div>';
   }).join(''):'<div class="empty">No schools returned.</div>');
 }
 
@@ -412,7 +412,7 @@ function loadCrimeDetail(slug){
     if(cats.length){
       var max=cats[0].n||1;
       h+='<div class="sec-h">By category · all years</div><div class="card">'+cats.map(function(x){
-        return '<div style="padding:5px 0"><div style="display:flex;justify-content:space-between;gap:10px;font-size:13.5px"><span style="color:var(--ink2)">'+esc(fieldLabel(x.k))+'</span><span style="font-family:var(--f-mono);font-size:12px;color:var(--mute)">'+fmtN(x.n)+'</span></div><div style="height:5px;border-radius:3px;background:var(--line2);margin-top:4px"><div style="height:5px;border-radius:3px;background:var(--blue);width:'+Math.max(2,Math.round(x.n/max*100))+'%"></div></div></div>';
+        return '<div style="padding:5px 0"><div style="display:flex;justify-content:space-between;gap:10px;font-size:var(--fs-md)"><span style="color:var(--ink2)">'+esc(fieldLabel(x.k))+'</span><span style="font-family:var(--f-mono);font-size:var(--fs-sm);color:var(--mute)">'+fmtN(x.n)+'</span></div><div style="height:5px;border-radius:3px;background:var(--line2);margin-top:4px"><div style="height:5px;border-radius:3px;background:var(--blue);width:'+Math.max(2,Math.round(x.n/max*100))+'%"></div></div></div>';
       }).join('')+'</div>';
     }
     var by=c.byYear||{};
@@ -440,7 +440,7 @@ function runLTB(){
 }
 
 function loadBasement(){
-  $('content').innerHTML='<div class="fbar"><input id="bcaddr" placeholder="41 Fanshawe Cres, Brampton"><button class="gobtn" onclick="runBC()">Check</button></div><div class="chips" id="bcchips"></div><div id="bcHint" style="font-size:12px;color:var(--mute);margin:10px 2px"></div><div id="bcRes"></div><div id="bcCov" style="margin-top:22px"></div>';
+  $('content').innerHTML='<div class="fbar"><input id="bcaddr" placeholder="41 Fanshawe Cres, Brampton"><button class="gobtn" onclick="runBC()">Check</button></div><div class="chips" id="bcchips"></div><div id="bcHint" style="font-size:var(--fs-sm);color:var(--mute);margin:10px 2px"></div><div id="bcRes"></div><div id="bcCov" style="margin-top:22px"></div>';
   var chips=['64 Abbey Rd, Brampton','55 Aberdeen St, Oshawa','606 Abana Rd, Mississauga'];
   $('bcchips').innerHTML=chips.map(function(c){return '<button class="citychip" data-a="'+esc(c)+'">'+esc(c)+'</button>';}).join('');
   $('bcchips').querySelectorAll('.citychip').forEach(function(b){ b.addEventListener('click',function(){ $('bcaddr').value=b.dataset.a; runBC(); }); });
@@ -481,7 +481,7 @@ function loadGuide(){
     var r=(d&&d.realtors)||[], links=(d&&d.links)||{}, buyers=links.buyers||'';
     var h=stamp(d)+'<div class="card"><div class="card-s">'+(buyers?'Tap the realtor presenting — the Buyers Guide opens ready to walk through.':'No guide link found on the Dashboard sheet yet — add a “Buyers Guide” link there to activate this page.')+'</div></div>';
     h+=r.map(function(x){
-      var av=x.photo?'<img class="avatar" loading="lazy" alt="" src="'+esc(x.photo)+'">':'<span class="avatar" style="display:grid;place-items:center;font-family:var(--f-disp);font-weight:700;font-size:15px;color:var(--blue);background:var(--blue-soft)">'+esc(initials(x.name))+'</span>';
+      var av=x.photo?'<img class="avatar" loading="lazy" alt="" src="'+esc(x.photo)+'">':'<span class="avatar" style="display:grid;place-items:center;font-family:var(--f-disp);font-weight:700;font-size:var(--fs-base);color:var(--blue);background:var(--blue-soft)">'+esc(initials(x.name))+'</span>';
       var inner=av+'<div class="card-t" style="margin:0;flex:1">'+esc(x.name)+'</div>';
       return buyers?'<a class="card" style="display:flex;align-items:center;gap:12px;text-decoration:none" target="_blank" href="'+esc(buyers)+'">'+inner+'<span style="color:var(--mute)">'+ico('chev',16)+'</span></a>'
                    :'<div class="card" style="display:flex;align-items:center;gap:12px;opacity:.55">'+inner+'</div>';
@@ -519,7 +519,7 @@ function drawLB(period){
     var head='<div class="card-s" style="margin:0 2px 10px">Ranked by talk time</div>';
     if(team){ head+='<div class="card" style="display:flex;gap:20px"><div><div class="card-s">Team calls</div><div class="card-t">'+esc(team.calls)+'</div></div><div><div class="card-s">Conversations</div><div class="card-t">'+esc(team.conv)+'</div></div><div><div class="card-s">Talk time</div><div class="card-t">'+mins(team.talkSec)+'</div></div></div>'; }
     $('lbRes').innerHTML=stamp(d)+head+rows.map(function(r,i){
-      return '<div class="card"><div class="card-t">'+(i+1)+'. '+esc(r.name||r.agent||'—')+'</div><div style="font-family:var(--f-disp);font-weight:600;font-size:15px;color:var(--blue);margin:2px 0 4px">'+mins(r.talkSec)+' <span style="font-size:11px;color:var(--mute);font-weight:400;text-transform:uppercase;letter-spacing:.05em">talk time</span></div>'+kv('Calls',r.calls)+kv('Conversations',(r.conv!=null?r.conv:(r.conversations||0)))+'</div>';
+      return '<div class="card"><div class="card-t">'+(i+1)+'. '+esc(r.name||r.agent||'—')+'</div><div style="font-family:var(--f-disp);font-weight:600;font-size:var(--fs-base);color:var(--blue);margin:2px 0 4px">'+mins(r.talkSec)+' <span style="font-size:var(--fs-xs);color:var(--mute);font-weight:400;text-transform:uppercase;letter-spacing:.05em">talk time</span></div>'+kv('Calls',r.calls)+kv('Conversations',(r.conv!=null?r.conv:(r.conversations||0)))+'</div>';
     }).join('');
   }).catch(fail);
 }
@@ -551,7 +551,7 @@ function loadFaqs(){
     var rows=(d&&d.rows)||[];
     if(!rows.length){ $('content').innerHTML='<div class="empty">No FAQs.</div>'; return; }
     $('content').innerHTML=stamp(d)+rows.map(function(r){
-      return '<details class="card"><summary style="font-weight:600;color:var(--ink);cursor:pointer;list-style:none">'+esc(r.question||'Question')+'</summary><div style="font-size:13.5px;color:var(--ink2);margin-top:8px;line-height:1.55">'+esc(r.answer||'')+(r.source?'<div class="lnkrow">'+linkBtn('Source',r.source)+'</div>':'')+'</div></details>';
+      return '<details class="card"><summary style="font-weight:600;color:var(--ink);cursor:pointer;list-style:none">'+esc(r.question||'Question')+'</summary><div style="font-size:var(--fs-md);color:var(--ink2);margin-top:8px;line-height:1.55">'+esc(r.answer||'')+(r.source?'<div class="lnkrow">'+linkBtn('Source',r.source)+'</div>':'')+'</div></details>';
     }).join('');
   }).catch(fail);
 }
