@@ -68,7 +68,12 @@ createServer(async (req, res) => {
   }
 
   try {
-    const html = await readFile(new URL('../App.html', import.meta.url), 'utf8');
+    let html = await readFile(new URL('../App.html', import.meta.url), 'utf8');
+    // Resolve Apps Script partials the way HtmlService.createTemplateFromFile would.
+    for (const m of [...html.matchAll(/<\?!=\s*include\('([^']+)'\)\s*\?>/g)]) {
+      const part = await readFile(new URL(`../${m[1]}.html`, import.meta.url), 'utf8');
+      html = html.replace(m[0], () => part);   // replacer fn: keeps $ sequences literal
+    }
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
     res.end(html.replace('</head>', SHIM + '</head>'));
   } catch (err) {
