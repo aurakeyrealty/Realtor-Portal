@@ -600,12 +600,16 @@ function bootcampFullName_(user) {
 /* Self bootcamp view: plan for a week + this user's progress */
 function getBootcampPayload_(p) {
   var tok = checkToken_(p.auth || ''); if (!tok) return { ok: false, error: 'login required' };
+  // My Deals fails closed on a deleted row via matchNameForUser_; this one has to
+  // ask, or a removed realtor keeps reading the bootcamp until the token lapses.
+  if (!userStillActive_(tok.user)) return { ok: false, error: 'login required' };
   var week = (p.week === undefined || p.week === '') ? 1 : Number(p.week);
   return { ok: true, week: week, plan: getOnboarding_(week), progress: getOnboardingProgress_(tok.user, week) };
 }
 /* Admin review across weeks 0..4 (admin token only) */
 function bootcampReview_(p) {
   var tok = checkToken_(p.auth || ''); if (!tok || tok.role !== 'admin') return { ok: false, error: 'admin only' };
+  if (!userStillActive_(tok.user)) return { ok: false, error: 'admin only' };
   var sh = onbProgressSheet_(), m = onbProgMap_();
   var plans = {};
   [0, 1, 2, 3, 4].forEach(function (w) { try { var pl = getOnboarding_(w); if (pl && pl.days && pl.days.length) plans[w] = pl; } catch (e) {} });

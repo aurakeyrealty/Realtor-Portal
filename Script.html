@@ -123,6 +123,7 @@ function go(v,arg){
 }
 var SCROLLPOS={};
 function route(){
+  if(!TOKEN){ showGate(); return; }      // hash changes must not slip past the gate
   closeDrawer();
   RENDER_SEQ++;
   RENDER_FRESH=FRESH; FRESH=false;
@@ -161,7 +162,7 @@ function paintEventBar(){
   bar.innerHTML='<span class="ev-dot" aria-hidden="true"></span>'
     +'<div class="ev-tx"><b>Next event'+(when?' · '+esc(when):'')+'</b>'+(ev.title?'<span>'+esc(ev.title)+'</span>':'')+(line?'<i>'+esc(line)+'</i>':'')+'</div>'
     +'<span class="ev-act">'
-      +(ev.link?'<a class="ev-go" href="'+esc(ev.link)+'" target="_blank" rel="noopener">Register</a>':'')
+      +(safeUrl(ev.link)?'<a class="ev-go" href="'+esc(safeUrl(ev.link))+'" target="_blank" rel="noopener">Register</a>':'')
       +'<button class="ev-x" id="evX" aria-label="Dismiss">'+ico('x',15)+'</button>'
     +'</span>';
   bar.hidden=false;
@@ -196,7 +197,11 @@ function restoreScroll(y){
 function fail(e){ if(e===STALE_ERR) return; $('content').innerHTML='<div class="err">Could not load — try again.<br><span style="color:var(--mute)">'+esc((e&&e.message)||e||'')+'</span></div>'; }
 
 function kv(k,v){ if(v==null||v===''||typeof v==='object')return''; if(isUrl(v))return '<div class="kv"><span class="kk">'+esc(k)+'</span><a class="vv" href="'+esc(v)+'" target="_blank">'+esc(host(v))+'</a></div>'; return '<div class="kv"><span class="kk">'+esc(k)+'</span><span class="vv">'+esc(v)+'</span></div>'; }
-function linkBtn(label,url){ return url?'<a class="lnk" href="'+esc(url)+'" target="_blank">'+esc(label)+'</a>':''; }
+/* a spreadsheet cell is untrusted input: esc() stops it breaking out of the
+   attribute but leaves "javascript:..." intact, so only http(s) may become an
+   href — the token in localStorage is the whole app's key now */
+function safeUrl(u){ return isUrl(u)?String(u):''; }
+function linkBtn(label,url){ var u=safeUrl(url); return u?'<a class="lnk" href="'+esc(u)+'" target="_blank">'+esc(label)+'</a>':''; }
 function telBtn(p){ p=String(p||'').trim(); return p?'<a class="lnk" href="tel:'+esc(p.replace(/[^0-9+]/g,''))+'">Call '+esc(p)+'</a>':''; }
 /* a sheet cell can hold several addresses ("a@x.com, b@y.com"); a raw comma in
    a mailto is malformed, so link each address on its own */
@@ -551,7 +556,7 @@ function paintBoardLinks(boards,sf){
   $('fsLinks').innerHTML='<div class="sec-h">Official board finders</div>'
     +'<div class="card wide"><div class="card-s">For a region we can’t look up directly — Toronto, Waterloo and the rest — open the board’s own tool and search the address there.</div></div>'
     +'<div class="rowlist">'+links.map(function(l){
-        return '<a class="rowitem" href="'+esc(l.url)+'" target="_blank" rel="noopener">'+esc(l.name)+'<span class="rmeta">'+ico('chev',15)+'</span></a>';
+        return '<a class="rowitem" href="'+esc(safeUrl(l.url))+'" target="_blank" rel="noopener">'+esc(l.name)+'<span class="rmeta">'+ico('chev',15)+'</span></a>';
       }).join('')+'</div>';
 }
 function fsSuggest(v){
@@ -1536,7 +1541,7 @@ function paintWebsites(){
     });
     shown+=items.length;
     if(!items.length) return;
-    h+='<div class="sec-h">'+esc(s.section)+'</div><div class="card">'+items.map(function(it){ return '<div class="kv"><a class="vv" href="'+esc(it.url)+'" target="_blank">'+esc(it.name||host(it.url))+'</a></div>'; }).join('')+'</div>';
+    h+='<div class="sec-h">'+esc(s.section)+'</div><div class="card">'+items.map(function(it){ return '<div class="kv"><a class="vv" href="'+esc(safeUrl(it.url))+'" target="_blank">'+esc(it.name||host(it.url))+'</a></div>'; }).join('')+'</div>';
   });
   pageCount('websites',shown,total,'site','sites');
   $('webOut').innerHTML=h||'<div class="empty">Nothing matches.</div>';
@@ -1565,25 +1570,74 @@ function loadVacations(){ rowsPage('vacations','Filter by name',['name','from','
   return '<div class="card"><div class="card-t">'+esc(r.name||'—')+'</div>'+kv('From',r.from)+kv('To',r.to)+kv('Reachable',r.reachable)+'</div>';
 }); }
 
+/* ===================== SESSION =====================
+   Sign-in guards the whole app, not two pages inside it. Everything that knows
+   *how* a session is stored lives in these four functions, so the native build
+   can swap localStorage for Capacitor Preferences without touching the gate. */
 var TOKEN=null, WHO=null;
-try{ TOKEN=localStorage.getItem('ak_token')||null; WHO=localStorage.getItem('ak_who')||null; }catch(e){}
-function loginForm(target){
-  return '<div class="login-card"><div class="card"><div class="card-t">Sign in</div><div class="card-s" style="margin-bottom:12px">Use your portal ID and password.</div><input id="lg_id" placeholder="ID" autocomplete="username"><input id="lg_pw" type="password" placeholder="Password" autocomplete="current-password"><button class="gobtn" style="width:100%;padding:12px" onclick="doLogin(\''+target+'\')">Sign in</button><div id="lg_err" class="err" style="padding:8px 0 0"></div></div></div>';
+var SESSION_MS=7*24*60*60*1000;      // must match SESSION_MS in Core.js
+function tokenGet(){ try{ return localStorage.getItem('ak_token')||null; }catch(e){ return null; } }
+function whoGet(){ try{ return localStorage.getItem('ak_who')||null; }catch(e){ return null; } }
+function tokenSet(t,who){ try{ localStorage.setItem('ak_token',t); if(who!=null) localStorage.setItem('ak_who',who); }catch(e){} }
+function tokenClear(){ try{ localStorage.removeItem('ak_token'); localStorage.removeItem('ak_who'); }catch(e){} }
+
+/* The token is "user|role|issued" base64url'd, plus the server's signature. We
+   read only the timestamp, and only to skip a pointless round trip on a token
+   that is already dead — the signature is the server's business, and it checks
+   it on every call. Nothing here decides who you are. */
+function tokenIssued(t){
+  try{
+    var b=String(t||'').split('.')[0].replace(/-/g,'+').replace(/_/g,'/');
+    while(b.length%4) b+='=';
+    var n=Number(atob(b).split('|')[2]);
+    return isFinite(n)?n:0;
+  }catch(e){ return 0; }
 }
-function doLogin(target){
-  var id=($('lg_id').value||'').trim(), pw=($('lg_pw').value||'').trim();
-  if(!id||!pw){ $('lg_err').textContent='Enter ID and password.'; return; }
-  $('lg_err').textContent='Signing in…';
+function tokenAlive(t){ var i=tokenIssued(t); return !!i && (Date.now()-i)<SESSION_MS; }
+
+function showGate(msg){
+  TOKEN=null;
+  closeDrawer();
+  /* Renders already in flight would otherwise land after the gate goes up and
+     repaint the last screen behind it; the seq bump makes freshOnly drop them. */
+  RENDER_SEQ++;
+  /* route() calls this on every hashchange while signed out, so it has to be
+     safe to repeat: only a gate that is actually opening may clear the form. */
+  var opening=!document.body.classList.contains('gated');
+  document.body.classList.add('gated');
+  $('gate').hidden=false;
+  if(msg!=null) $('gate_err').textContent=msg;
+  if(!opening) return;                        // never wipe what is being typed
+  if(msg==null) $('gate_err').textContent='';
+  var pw=$('gate_pw'); if(pw) pw.value='';
+  try{ $('gate_id').focus(); }catch(e){}
+}
+function hideGate(){ document.body.classList.remove('gated'); $('gate').hidden=true; }
+
+function doLogin(){
+  var id=($('gate_id').value||'').trim(), pw=$('gate_pw').value||'';
+  if(!id||!pw){ $('gate_err').textContent='Enter your ID and password.'; return; }
+  var btn=$('gate_go');
+  btn.disabled=true; btn.textContent='Signing in…'; $('gate_err').textContent='';
   call('login',{id:id,pw:pw,user:id,pass:pw}).then(function(r){
-    if(!r||!r.ok||!r.token){ $('lg_err').textContent=(r&&r.error)||'Invalid ID or password.'; return; }
-    TOKEN=r.token; WHO=r.name||id; try{localStorage.setItem('ak_token',TOKEN);localStorage.setItem('ak_who',WHO);}catch(e){}
-    go(target);
-  }).catch(function(){ $('lg_err').textContent='Sign-in failed — try again.'; });
+    btn.disabled=false; btn.textContent='Sign in';
+    if(!r||!r.ok||!r.token){ $('gate_err').textContent=sentence(r&&r.error)||'Invalid ID or password.'; return; }
+    TOKEN=r.token; WHO=r.name||id; tokenSet(TOKEN,WHO);
+    $('gate_pw').value='';
+    hideGate(); paintNavUser(); route();
+  }).catch(function(){
+    btn.disabled=false; btn.textContent='Sign in';
+    $('gate_err').textContent='Could not reach the server — check your connection.';
+  });
 }
+/* the server's errors are lowercase fragments ("invalid id or password"); this
+   screen is the one place a realtor reads them raw */
+function sentence(t){ t=String(t||'').trim(); return t?t.charAt(0).toUpperCase()+t.slice(1)+(/[.!?]$/.test(t)?'':'.'):''; }
+function paintNavUser(){ var el=$('drUser'); if(el) el.textContent=WHO?('Signed in as '+WHO):''; }
 function loadMyDeals(){
-  if(!TOKEN){ $('content').innerHTML=loginForm('mydeals'); return; }
+  if(!TOKEN){ showGate(); return; }
   freshOnly(call('mydeals',{auth:TOKEN})).then(function(d){
-    if(!d||d.ok===false){ if(/login|token|auth/i.test((d&&d.error)||'')){ TOKEN=null; $('content').innerHTML=loginForm('mydeals'); return; } $('content').innerHTML='<div class="err">'+esc((d&&d.error)||'Could not load.')+'</div>'; return; }
+    if(!d||d.ok===false){ if(/login|token|auth/i.test((d&&d.error)||'')){ sessionLost(); return; } $('content').innerHTML='<div class="err">'+esc((d&&d.error)||'Could not load.')+'</div>'; return; }
     renderMyDeals(d);
   }).catch(fail);
 }
@@ -1612,7 +1666,7 @@ function renderMyDeals(d){
   if(!tabs.some(function(t){return t[0]===mdTab;})) mdTab='deals';
   mdFuShown={current:MD_FU_STEP,future:MD_FU_STEP};   // per payload, or the "N of M" hint never returns
   $('content').innerHTML=
-     '<div class="card"><div class="card-t">Hi '+esc(WHO||'')+'</div><div class="card-s">'+counts.deals+' deals · '+nfu+' follow-ups</div><div class="lnkrow"><button class="lnk" onclick="signOut()">Sign out</button></div></div>'
+     '<div class="card"><div class="card-t">Hi '+esc(WHO||'')+'</div><div class="card-s">'+counts.deals+' deals · '+nfu+' follow-ups</div></div>'
     +'<div class="chips" id="mdTabs" style="margin-bottom:12px">'+tabs.map(function(t){
         return '<button class="citychip'+(t[0]===mdTab?' on':'')+'" data-t="'+t[0]+'">'+t[1]+' ('+counts[t[0]]+')</button>';
       }).join('')+'</div>'
@@ -1717,7 +1771,7 @@ function paintMDList(rows,order,titleKey,empty){
   }).join('');
 }
 function loadBootcamp(){
-  if(!TOKEN){ $('content').innerHTML=loginForm('onboarding'); return; }
+  if(!TOKEN){ showGate(); return; }
   $('content').innerHTML='<div class="seg" id="wkseg"></div><div id="wkRes">'+skel(3)+'</div>';
   $('wkseg').innerHTML=[0,1,2,3,4].map(function(w){return '<button class="'+(w===1?'on':'')+'" data-w="'+w+'">'+(w===0?'Onboard':'Wk '+w)+'</button>';}).join('');
   $('wkseg').querySelectorAll('button').forEach(function(b){ b.addEventListener('click',function(){ $('wkseg').querySelectorAll('button').forEach(function(x){x.classList.remove('on');}); b.classList.add('on'); drawWeek(+b.dataset.w); }); });
@@ -1726,7 +1780,7 @@ function loadBootcamp(){
 function drawWeek(w){
   $('wkRes').innerHTML=skel(3);
   freshOnly(call('bootcamp',{auth:TOKEN,week:w})).then(function(d){
-    if(!d||d.ok===false){ if(/login|token|auth/i.test((d&&d.error)||'')){ TOKEN=null; $('content').innerHTML=loginForm('onboarding'); return; } $('wkRes').innerHTML='<div class="empty">'+esc((d&&d.error)||'No content.')+'</div>'; return; }
+    if(!d||d.ok===false){ if(/login|token|auth/i.test((d&&d.error)||'')){ sessionLost(); return; } $('wkRes').innerHTML='<div class="empty">'+esc((d&&d.error)||'No content.')+'</div>'; return; }
     var plan=d.plan||{}, days=plan.days||[];
     if(!days.length){ $('wkRes').innerHTML='<div class="empty">'+esc(plan.empty?'No content for this week yet.':'No content for this week.')+'</div>'; return; }
     $('wkRes').innerHTML=days.map(function(day){
@@ -1737,7 +1791,21 @@ function drawWeek(w){
     }).join('');
   }).catch(fail);
 }
-function signOut(){ TOKEN=null;WHO=null; try{localStorage.removeItem('ak_token');localStorage.removeItem('ak_who');}catch(e){} go('mydeals'); }
+function signOut(){
+  TOKEN=null; WHO=null; tokenClear(); paintNavUser();
+  MEM={};                              // nothing personal is cached today (My Deals
+                                       // and Bootcamp bypass the cache) — this keeps
+                                       // it true if that ever changes
+  $('content').innerHTML='';
+  showGate();
+}
+/* the server refused a token we thought was good: expired, revoked, or the
+   signing key changed under us */
+function sessionLost(){
+  tokenClear(); TOKEN=null; WHO=null; paintNavUser();
+  MEM={}; $('content').innerHTML='';        // body.gated only hides the shell in CSS
+  showGate('Your session expired — please sign in again.');
+}
 
 function copyText(t){ try{ if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(t);return;} }catch(e){} var ta=document.createElement('textarea');ta.value=t;ta.style.position='fixed';ta.style.opacity='0';document.body.appendChild(ta);ta.select();try{document.execCommand('copy');}catch(e){}document.body.removeChild(ta); }
 function installHtml(){
@@ -1769,5 +1837,43 @@ var DETAIL_PARENT=null;
 document.getElementById('tbBack').addEventListener('click',function(){ go(DETAIL_PARENT||'home'); });
 if('scrollRestoration' in history) history.scrollRestoration='manual';   // router owns scroll position
 window.addEventListener('hashchange', route);
-route();
+
+/* ---- boot ----------------------------------------------------------------
+   No token, or one already past its seven days: show the gate and never touch
+   the network — signing in is the only thing that screen can do.
+
+   With a live token, render immediately and verify behind it. Blocking on a
+   round trip would put a spinner in front of an app built to work offline, and
+   a token the server refuses is torn down a moment later anyway. */
+function boot(){
+  $('gateForm').addEventListener('submit',function(e){ e.preventDefault(); doLogin(); });
+  var stored=tokenGet(); WHO=whoGet(); paintNavUser();
+  if(!stored){ tokenClear(); showGate(); return; }
+
+  if(tokenAlive(stored)){
+    TOKEN=stored; hideGate(); route(); verifySession(stored);
+    return;
+  }
+  /* The device clock puts this past the window — but a phone with a wrong clock
+     must not lock anyone out, so the server gets the final say. Gate while we ask;
+     offline there is no ruling to be had, and gated is the safe answer. */
+  showGate();
+  call('session',{auth:stored}).then(function(r){
+    if(r&&r.ok&&r.token){ TOKEN=r.token; tokenSet(TOKEN,WHO); hideGate(); paintNavUser(); route(); return; }
+    tokenClear();
+  }).catch(function(){});
+}
+/* Verified behind the render, not in front of it: blocking would put a spinner
+   over an app built to work offline, and a refused token is torn down a moment
+   later anyway. */
+function verifySession(tok){
+  call('session',{auth:tok}).then(function(r){
+    if(r&&r.ok){
+      if(r.token){ TOKEN=r.token; tokenSet(TOKEN,WHO); }   // sliding: the clock restarts
+      return;
+    }
+    sessionLost();
+  }).catch(function(){ /* offline — stay in; the cached screens still work */ });
+}
+boot();
 </script>

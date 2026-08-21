@@ -7,6 +7,7 @@
  */
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
+import { HANDLES as isAuthAction, handle as authHandle, removeUser } from './authshim.mjs';
 
 const PORT = 4599;
 const EXEC = 'https://script.google.com/macros/s/AKfycbwDuEBNjOtMhRro9ug_Zc1DvvbfHu-Jc8sEQSPuCe8pU7fePEyhwBs_MLkLxXORN5tYpQ/exec';
@@ -36,7 +37,25 @@ Object.defineProperty(window.google.script, 'run', { get: function () {
 createServer(async (req, res) => {
   const url = new URL(req.url, 'http://localhost');
 
+  // dev-only lever: /dev/remove?user=priya drops a fixture user, so the
+  // "removed realtor loses access" path can be walked locally.
+  if (url.pathname === '/dev/remove') {
+    const left = removeUser(url.searchParams.get('user') || '');
+    res.writeHead(200, { 'content-type': 'application/json' });
+    return res.end(JSON.stringify({ ok: true, remaining: left }));
+  }
+
   if (url.pathname === '/api') {
+    const action = url.searchParams.get('action') || '';
+    // The only reachable deployment is V1 (@15) — the team's, running the old
+    // server code — so login and session are answered here by the real Core.js /
+    // Sheets.js in a VM against a fixture LOGIN tab. Everything else proxies out.
+    if (isAuthAction(action)) {
+      const out = authHandle(action, Object.fromEntries(url.searchParams));
+      console.log(action, '-> local', JSON.stringify(out).length + 'b');
+      res.writeHead(200, { 'content-type': 'application/json' });
+      return res.end(JSON.stringify(out));
+    }
     try {
       const upstream = await fetch(EXEC + '?' + url.searchParams.toString(), { redirect: 'follow' });
       let body = await upstream.text();

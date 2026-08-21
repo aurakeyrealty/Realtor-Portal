@@ -283,30 +283,98 @@ function loginRows_() {
   for (var r = 1; r < vals.length; r++) { var o = {}; keys.forEach(function (k, i) { o[k] = vals[r][i]; }); if (o.username) out.push(o); }
   return out;
 }
+/* Failed guesses cost progressively more time. The first slip is free so a typo
+   is never punished; a script grinding through a password list stalls out. Per
+   username, and no lockout -- a lockout would let anyone freeze a colleague. */
+var LOGIN_BACKOFF_MS = [0, 1000, 2000, 4000, 8000];
+function loginFailKey_(user) { return 'lf_' + String(user || '').trim().toLowerCase(); }
+function loginDelay_(user) {
+  try {
+    var n = Number(CacheService.getScriptCache().get(loginFailKey_(user)) || 0);
+    return LOGIN_BACKOFF_MS[Math.min(n, LOGIN_BACKOFF_MS.length - 1)];
+  } catch (e) { return 0; }
+}
+function loginFailed_(user) {
+  try {
+    var c = CacheService.getScriptCache(), k = loginFailKey_(user);
+    c.put(k, String(Number(c.get(k) || 0) + 1), 900);   // 15 quiet minutes clears the count
+  } catch (e) {}
+}
+function loginOk_(user) { try { CacheService.getScriptCache().remove(loginFailKey_(user)); } catch (e) {} }
+
 function handleLogin_(p) {
   var user = String(p.user || p.id || p.username || '').trim(), pass = String(p.pass || p.password || '');
   if (!user || !pass) return { ok: false, error: 'missing id or password' };
-  if (user.toLowerCase() === ADMIN_ID && pass === ADMIN_PASSCODE) return { ok: true, admin: true, name: 'Admin', role: 'admin', token: makeToken_('admin', 'admin') };
-  if (user.toLowerCase() === 'demo' && pass.toLowerCase() === 'demo') return { ok: true, demo: true, name: 'Demo', role: 'demo', token: makeToken_('demo', 'demo') };
+  // Charged before the comparison, so the wait cannot be read as a hit or a miss.
+  var wait = loginDelay_(user); if (wait) Utilities.sleep(wait);
+  // IDs are matched case-insensitively, as usernames normally are. Passwords are not.
+  if (user.toLowerCase() === ADMIN_ID && pass === ADMIN_PASSCODE) { loginOk_(user); return { ok: true, admin: true, name: 'Admin', role: 'admin', token: makeToken_('admin', 'admin') }; }
+  if (user.toLowerCase() === 'demo' && pass === 'demo') { loginOk_(user); return { ok: true, demo: true, name: 'Demo', role: 'demo', token: makeToken_('demo', 'demo') }; }
   var rows = loginRows_();
   for (var i = 0; i < rows.length; i++) {
     var u = String(rows[i].username || '').trim(), pw = String(rows[i].password || '');
-    if (u && u.toLowerCase() === user.toLowerCase() && pw.toLowerCase() === pass.toLowerCase())
+    if (u && u.toLowerCase() === user.toLowerCase() && pw === pass) {
+      loginOk_(user);
       return { ok: true, name: rows[i].name || u, email: rows[i].email || '', role: 'realtor', token: makeToken_(u, 'realtor') };
+    }
   }
+  loginFailed_(user);
   return { ok: false, error: 'invalid id or password' };
+}
+
+/* Is this token still backed by a live account? Delete someone's LOGIN row and
+   they lose access within the cache window below -- without it, a signed token
+   outlives the account it was issued to. Only usernames are cached, never the
+   passwords beside them. The two built-in logins are not sheet rows. */
+function activeUsers_() {
+  var c = null, hit = null;
+  try { c = CacheService.getScriptCache(); hit = c.get('active_users'); } catch (e) {}
+  if (hit) { try { return JSON.parse(hit); } catch (e) {} }
+  var rows = loginRows_(), out = [];
+  for (var i = 0; i < rows.length; i++) {
+    var u = String(rows[i].username || '').trim().toLowerCase();
+    if (u) out.push(u);
+  }
+  if (c) { try { c.put('active_users', JSON.stringify(out), 300); } catch (e) {} }   // removal bites within 5 min
+  return out;
+}
+function userStillActive_(user) {
+  var u = String(user || '').trim().toLowerCase();
+  if (!u) return false;
+  if (u === ADMIN_ID || u === 'demo') return true;
+  return activeUsers_().indexOf(u) >= 0;
 }
 function makeToken_(user, role) {
   var raw = user + '|' + role + '|' + Date.now();
-  var sig = Utilities.base64EncodeWebSafe(Utilities.computeHmacSha256Signature(raw, TOKEN_SECRET));
+  var sig = Utilities.base64EncodeWebSafe(Utilities.computeHmacSha256Signature(raw, tokenSecret_()));
   return Utilities.base64EncodeWebSafe(raw) + '.' + sig;
 }
 function checkToken_(token) {
   var parts = String(token || '').split('.'); if (parts.length !== 2) return null;
   var raw; try { raw = Utilities.newBlob(Utilities.base64DecodeWebSafe(parts[0])).getDataAsString(); } catch (e) { return null; }
-  var want = Utilities.base64EncodeWebSafe(Utilities.computeHmacSha256Signature(raw, TOKEN_SECRET));
+  var want = Utilities.base64EncodeWebSafe(Utilities.computeHmacSha256Signature(raw, tokenSecret_()));
   if (want !== parts[1]) return null;
-  var b = raw.split('|'); return { user: b[0], role: b[1], issued: Number(b[2]) };
+  // Parsed from the end: the username is the one field that can itself contain
+  // a '|', so counting from the front would misread every other field.
+  var b = raw.split('|');
+  if (b.length < 3) return null;
+  var issued = Number(b[b.length - 1]), role = b[b.length - 2], user = b.slice(0, b.length - 2).join('|');
+  // A good signature is not enough: past the window the token is dead, which is
+  // what stops a copied token from working forever.
+  if (!issued || Date.now() - issued > SESSION_MS) return null;
+  return { user: user, role: role, issued: issued };
+}
+/* Called once per app launch: confirms the stored token is still good AND that
+   the account still exists, then hands back a fresh one -- which is what makes
+   the seven days slide. The display name is not returned; the client kept it
+   from sign-in. */
+function handleSession_(p) {
+  var t = checkToken_(p && p.auth || '');
+  if (!t) return { ok: false, error: 'login required' };
+  // Renewal is the one place a session can outlive the account, so it is the one
+  // place worth a sheet read: without this, a removed realtor renews forever.
+  if (!userStillActive_(t.user)) return { ok: false, error: 'login required' };
+  return { ok: true, user: t.user, role: t.role, token: makeToken_(t.user, t.role) };
 }
 
 /* ================= editor helpers ================= */

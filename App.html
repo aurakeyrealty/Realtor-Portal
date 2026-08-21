@@ -15,6 +15,20 @@
 <?!= include('Styles') ?>
 </head>
 <body>
+<div class="gate" id="gate" hidden>
+  <form class="gate-card" id="gateForm">
+    <div class="mark gate-mark">AK</div>
+    <h1 class="gate-t">Aura Key Realty</h1>
+    <p class="gate-s">Sign in to open your realtor tools.</p>
+    <label class="gate-l" for="gate_id">Portal ID</label>
+    <input id="gate_id" name="username" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" required>
+    <label class="gate-l" for="gate_pw">Password</label>
+    <input id="gate_pw" name="password" type="password" autocomplete="current-password" required>
+    <button class="gate-go" id="gate_go" type="submit">Sign in</button>
+    <div class="gate-err" id="gate_err" role="alert" aria-live="polite"></div>
+    <p class="gate-note">You stay signed in for 7 days.</p>
+  </form>
+</div>
 <div class="phone">
   <div class="topbar">
     <div class="hdr-row">
@@ -40,7 +54,11 @@
 <nav class="drawer" id="drawer">
   <div class="dr-head"><div class="mark">AK</div><div><div class="hdr-name">Aura Key Realty</div><div class="hdr-crumb">Realtor Tools</div></div></div>
   <div id="navlist"></div>
-  <div style="padding:16px 18px 30px;color:var(--mute);font-size:11px;font-family:var(--f-mono)">v1 · Team app</div>
+  <div class="dr-foot">
+    <div class="dr-user" id="drUser"></div>
+    <button class="dr-out" onclick="signOut()">Sign out</button>
+    <div class="dr-ver">v1 · Team app</div>
+  </div>
 </nav>
 
 <?!= include('Script') ?>

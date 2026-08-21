@@ -24,7 +24,40 @@ var API_TOKEN = '';                       // app-level secret; '' = off
 
 var ADMIN_ID = 'admin';
 var ADMIN_PASSCODE = 'aurakey2026';
+
+/* Signing key for session tokens. The literal below is a placeholder and is
+   readable by anyone with the project or the repo, so a real one belongs in
+   Script Properties (Project Settings -> Script Properties -> TOKEN_SECRET).
+   Until that property is set the fallback keeps existing sessions working —
+   but the expiry and the role in a token are only as trustworthy as this key. */
 var TOKEN_SECRET = 'CHANGE_ME_to_a_long_random_string_2f8b1';
+var __SECRET = null;
+function tokenSecret_() {
+  if (__SECRET) return __SECRET;
+  var v = '';
+  try { v = String(PropertiesService.getScriptProperties().getProperty('TOKEN_SECRET') || '').trim(); } catch (e) {}
+  // Whatever is set IS the key. Quietly rejecting a weak one and reverting to the
+  // placeholder would leave the project looking secured while it is not.
+  if (v) { __SECRET = v; return __SECRET; }
+  console.warn('TOKEN_SECRET is not set in Script Properties — signing with the placeholder in Core.js. '
+    + 'Anyone holding the source can forge a session token, including an admin one. Run checkSecret() for status.');
+  __SECRET = TOKEN_SECRET;
+  return __SECRET;
+}
+/** Editor helper: is a real signing key live? Reports status, never the key. */
+function checkSecret() {
+  var v = '';
+  try { v = String(PropertiesService.getScriptProperties().getProperty('TOKEN_SECRET') || '').trim(); } catch (e) {}
+  if (!v) { Logger.log('TOKEN_SECRET: NOT SET — using the placeholder in Core.js. Tokens are forgeable.'); return 'NOT SET'; }
+  var fp = Utilities.base64EncodeWebSafe(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, v)).slice(0, 8);
+  Logger.log('TOKEN_SECRET: set, ' + v.length + ' chars, fingerprint ' + fp
+    + (v.length < 32 ? '  (32+ random chars recommended)' : ''));
+  return 'SET';
+}
+
+/* How long a sign-in lasts. Sliding: every app launch mints a fresh token, so
+   anyone who opens the app inside the window never has to sign in again. */
+var SESSION_MS = 7 * 24 * 60 * 60 * 1000;
 
 var LOGIN_HEADER_ROW = 2, LOGIN_FIRST_COL = 1, LOGIN_NUM_COLS = 5;   // A..E, row 2
 var HEADER_ROW = 2, DATA_START = 3;       // city / school tabs: headers row 2, data row 3
@@ -133,6 +166,10 @@ function doGet(e) {
   if (API_TOKEN && p.token !== API_TOKEN) return json_({ error: 'unauthorized' });
   var a = p.action || '';
 
+  // A password or a live token in a query string is written to the execution log
+  // and every proxy on the way. These two are POST-only; doPost carries them.
+  if (a === 'login' || a === 'session') return json_({ ok: false, error: 'use POST for ' + a });
+
   // doGet-only actions
   if (a === 'tabs') { var o = {}; Object.keys(ALLOW).forEach(function (k) { o[k] = ALLOW[k].slice(); }); return json_({ sheets: o }); }
   if (a === 'tab')   return json_(readTab_(p.name || '', p.sheet || '', p.headerRow || ''));
@@ -147,8 +184,10 @@ function doPost(e) {
   var b = {};
   try { b = JSON.parse((e && e.postData && e.postData.contents) || '{}'); } catch (err) {}
   if (API_TOKEN && b.token !== API_TOKEN) return json_({ error: 'unauthorized' });
-  if (b.action === 'login') return json_(handleLogin_(b));
-  return json_({ error: 'unknown action' });
+  // Same dispatch table as doGet -- no second switch to drift out of sync. POST
+  // exists so a password never rides in a query string, where it would land in
+  // the execution log: the native build posts login and session here.
+  return json_(app(b.action || '', b));
 }
 
 
@@ -191,6 +230,7 @@ function app(action, p) {
     case 'fslookup':      return fsLookup_(p.board, p.addr || p.address, p.num || p.houseNumber);
     case 'fsschools':     return fsSchools_(p.board, p.id || p.addressId, p.label || p.addressLabel, p.num || p.houseNumber);
     case 'login':         return handleLogin_(p);
+    case 'session':       return handleSession_(p);
     case 'mydeals':       return getMyDealsPayload_(p);
     case 'bootcamp':      return getBootcampPayload_(p);
     default:              return { ok: false, error: 'unknown action: ' + action };
