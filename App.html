@@ -272,7 +272,7 @@ function route(){
 }
 function fail(e){ $('content').innerHTML='<div class="err">Could not load — try again.<br><span style="color:var(--mute)">'+esc((e&&e.message)||e||'')+'</span></div>'; }
 
-function kv(k,v){ if(v==null||v==='')return''; if(isUrl(v))return '<div class="kv"><span class="kk">'+esc(k)+'</span><a class="vv" href="'+esc(v)+'" target="_blank">'+esc(host(v))+'</a></div>'; return '<div class="kv"><span class="kk">'+esc(k)+'</span><span class="vv">'+esc(v)+'</span></div>'; }
+function kv(k,v){ if(v==null||v===''||typeof v==='object')return''; if(isUrl(v))return '<div class="kv"><span class="kk">'+esc(k)+'</span><a class="vv" href="'+esc(v)+'" target="_blank">'+esc(host(v))+'</a></div>'; return '<div class="kv"><span class="kk">'+esc(k)+'</span><span class="vv">'+esc(v)+'</span></div>'; }
 function linkBtn(label,url){ return url?'<a class="lnk" href="'+esc(url)+'" target="_blank">'+esc(label)+'</a>':''; }
 function telBtn(p){ p=String(p||'').trim(); return p?'<a class="lnk" href="tel:'+esc(p.replace(/[^0-9+]/g,''))+'">Call '+esc(p)+'</a>':''; }
 function mailBtn(e){ e=String(e||'').trim(); return e?'<a class="lnk" href="mailto:'+esc(e)+'">Email</a>':''; }
@@ -453,7 +453,7 @@ function loadSchools(){
 function fieldLabel(k){ return String(k).replace(/[_-]+/g,' ').replace(/([a-z])([A-Z])/g,'$1 $2').replace(/\s+/g,' ').trim().replace(/^./,function(c){return c.toUpperCase();}); }
 function genCard(o){
   if(o==null) return ''; if(typeof o!=='object') return '<div class="card"><div class="vv">'+esc(o)+'</div></div>';
-  var keys=Object.keys(o).filter(function(k){return o[k]!=null&&o[k]!==''&&!/^_/.test(k);}); if(!keys.length) return '';
+  var keys=Object.keys(o).filter(function(k){return o[k]!=null&&o[k]!==''&&typeof o[k]!=='object'&&!/^_/.test(k);}); if(!keys.length) return '';
   var title=o.name||o.school||o.title||o.label||o[keys[0]];
   var body=keys.filter(function(k){return o[k]!==title;}).map(function(k){return kv(fieldLabel(k),o[k]);}).join('');
   return '<div class="card"><div class="card-t">'+esc(title)+'</div>'+body+'</div>';
@@ -517,13 +517,34 @@ function loadCrime(slug){
     $('crimechips').querySelectorAll('.citychip').forEach(function(b){ b.addEventListener('click',function(){ go('crime', b.dataset.s); }); });
   }).catch(fail);
 }
+function fmtN(n){ n=Number(n)||0; return n.toLocaleString('en-US'); }
 function loadCrimeDetail(slug){
   var label=String(slug).replace(/[-_]+/g,' ').replace(/\b\w/g,function(c){return c.toUpperCase();});
   $('scr-title').textContent=label;
   var back=backBtn('crime','All cities');
-  call('crime',{slug:slug}).then(function(d){
+  cachedCall('crime',{slug:slug}).then(function(d){
     if(!d||d.ok===false){ $('content').innerHTML=back+'<div class="err">'+esc((d&&d.error)||'No data.')+'</div>'; return; }
-    $('content').innerHTML=back+'<div class="sec-h">'+esc(label)+'</div>'+genCard(d.summary||d.totals||d);
+    var c=d.city||{};
+    if(!c.count){ $('content').innerHTML=back+'<div class="sec-h">'+esc(label)+'</div>'+genCard(d.summary||d.totals||d); return; }
+    var h=back+stamp(d);
+    h+='<div class="card"><div class="card-t">'+esc(c.name||label)+(c.province?' · '+esc(c.province):'')+'</div><div class="card-s">'+fmtN(c.count)+' recorded incidents'+(c.year_min?' · '+esc(c.year_min)+'–'+esc(c.year_max):'')+'</div>'+kv('Violent',fmtN(c.violent_count))+'</div>';
+    var wins=(d.win&&d.win.windows)||{};
+    var order=[['24h','Last 24 hours'],['60d','Last 60 days'],['6m','Last 6 months'],['1y','Last year'],['2y','Last 2 years']];
+    var wr=order.filter(function(o){return wins[o[0]];}).map(function(o){ var w=wins[o[0]]; return kv(o[1],fmtN(w.count)+(w.violent_count?' · '+fmtN(w.violent_count)+' violent':'')); }).join('');
+    if(wr) h+='<div class="sec-h">Recent activity</div><div class="card">'+wr+'</div>';
+    var bc=c.byCategory||{};
+    var cats=Object.keys(bc).map(function(k){return {k:k,n:Number(bc[k])||0};}).filter(function(x){return x.n>0;}).sort(function(a,b){return b.n-a.n;});
+    if(cats.length){
+      var max=cats[0].n||1;
+      h+='<div class="sec-h">By category · all years</div><div class="card">'+cats.map(function(x){
+        return '<div style="padding:5px 0"><div style="display:flex;justify-content:space-between;gap:10px;font-size:13.5px"><span style="color:var(--ink2)">'+esc(fieldLabel(x.k))+'</span><span style="font-family:var(--f-mono);font-size:12.5px;color:var(--mute)">'+fmtN(x.n)+'</span></div><div style="height:5px;border-radius:3px;background:var(--line2);margin-top:4px"><div style="height:5px;border-radius:3px;background:var(--blue);width:'+Math.max(2,Math.round(x.n/max*100))+'%"></div></div></div>';
+      }).join('')+'</div>';
+    }
+    var by=c.byYear||{};
+    var yrs=Object.keys(by).sort().slice(-4).reverse();
+    if(yrs.length) h+='<div class="sec-h">Recent years</div><div class="card">'+yrs.map(function(y){ return kv(y,fmtN((by[y]||{}).count)); }).join('')+'</div>';
+    h+='<div class="warn">Source: crimemaps.ca aggregated records. Coverage varies by year and service — use as an indicator, not an official statistic.</div>';
+    $('content').innerHTML=h;
   }).catch(fail);
 }
 
