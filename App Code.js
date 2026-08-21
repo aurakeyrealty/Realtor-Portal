@@ -58,6 +58,17 @@ function headerRowFor_(k, t, o) { if (o) return Math.max(1, parseInt(o, 10) || 1
 var __FRESH = false;
 function cacheGet_(k) { if (__FRESH) return null; try { var h = CacheService.getScriptCache().get(k); return h ? JSON.parse(h) : null; } catch (e) { return null; } }
 function cachePut_(k, v) { try { var s = JSON.stringify(v); if (s.length < 95000) CacheService.getScriptCache().put(k, s, 900); } catch (e) {} }
+/* The web app is anonymous, so `fresh` must not let a caller force unlimited full-sheet
+   reads: at most one cache-busting rebuild per action per 30s. A user tapping Refresh
+   still gets a rebuild; a loop cannot exhaust the script's quota. */
+function freshAllowed_(action) {
+  try {
+    var c = CacheService.getScriptCache(), gk = 'freshgate_' + action;
+    if (c.get(gk)) return false;
+    c.put(gk, '1', 30);
+    return true;
+  } catch (e) { return false; }
+}
 
 /* pull a URL from a cell: real hyperlink, run link, =HYPERLINK(), or bare URL */
 function cellUrl_(rt, formula, text) {
@@ -104,7 +115,7 @@ function dealsFind_(match) {
 /* ================= routing ================= */
 function doGet(e) {
   var p = (e && e.parameter) || {};
-  if (p.fresh) __FRESH = true;
+  if (p.fresh && freshAllowed_(String(p.action || ''))) __FRESH = true;
   if (!p.action) {
     return HtmlService.createTemplateFromFile('App').evaluate()
       .setTitle('Aura Key')
@@ -1529,7 +1540,7 @@ function getBasementCoverage_() {
    ===================================================================== */
 function app(action, p) {
   p = p || {}; action = String(action || '');
-  if (p.fresh) __FRESH = true;
+  if (p.fresh && !__FRESH && freshAllowed_(action)) __FRESH = true;
   switch (action) {
     case 'home':          return getHome_();
     case 'cities':        return getCities_();
