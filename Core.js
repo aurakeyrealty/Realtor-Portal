@@ -177,7 +177,6 @@ function app(action, p) {
     case 'callnight':     return getCallNight_();
     case 'leaderboard':   return getLeaderboard_(p.period);
     case 'meetings':      return getMeetingsLeaderboard_(p.period);
-    case 'guiderealtors': return getGuideRealtors_();
     case 'schools':
     case 'getRankings':
     case 'getSchools':    return rankingsSlim_();

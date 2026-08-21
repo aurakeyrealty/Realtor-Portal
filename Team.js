@@ -49,7 +49,7 @@ function getLeaderboard_(key) {
         list.push({ name: String(vals[r2][1] || ''), calls: Number(vals[r2][2]) || 0, conv: Number(vals[r2][3]) || 0, talkSec: Number(vals[r2][4]) || 0 });
       }
     }
-    list = list.filter(function (a) { return !guideIsAdmin_(a.name); });   // same hide-list as the Buyers Guide
+    list = list.filter(function (a) { return !guideIsAdmin_(a.name); });   // hide non-selling accounts
     if (!list.length) return { ok: false, error: 'No rows for "' + key + '".' };
     list.sort(function (x, y) { return (y.talkSec - x.talkSec) || (y.calls - x.calls); });
     var team = { calls: 0, conv: 0, talkSec: 0 };
@@ -305,28 +305,6 @@ function getCityCounts_() {
   return { updated: new Date().toISOString(), count: out.length, cities: out };
 }
 
-/* ---------- guide links from DASHBOARD/HOME ---------- */
-function getGuideLinks_() {
-  var sheets = ssFor_('main').getSheets(), sh = null;
-  for (var i = 0; i < sheets.length && !sh; i++) { var n = sheets[i].getName().toUpperCase(); if (n.indexOf('DASHBOARD') >= 0 || n.indexOf('HOME') >= 0) sh = sheets[i]; }
-  var out = { buyers: '', seller: '' };
-  if (!sh) return out;
-  var rows = Math.min(sh.getLastRow(), 30), cols = Math.min(sh.getLastColumn(), 12);
-  if (rows < 1 || cols < 1) return out;
-  var rng = sh.getRange(1, 1, rows, cols), disp = rng.getDisplayValues(), rts = [], fmls = [];
-  try { rts = rng.getRichTextValues(); } catch (e) {}
-  try { fmls = rng.getFormulas(); } catch (e) {}
-  for (var r = 0; r < disp.length; r++) for (var c = 0; c < disp[r].length; c++) {
-    var txt = String(disp[r][c] || ''), isB = /buy(er)?s?\s*guide/i.test(txt), isS = /sell(er)?s?\s*guide/i.test(txt);
-    if (!isB && !isS) continue;
-    var url = cellUrl_(rts[r] ? rts[r][c] : null, fmls[r] ? fmls[r][c] : '', txt);
-    if (!url) { var nc = c + 1; if (nc < disp[r].length) url = cellUrl_(rts[r] ? rts[r][nc] : null, fmls[r] ? fmls[r][nc] : '', disp[r][nc]); }
-    if (!url) { var mu = txt.match(/https?:\/\/\S+/); if (mu) url = mu[0]; }
-    if (isB && url && !out.buyers) out.buyers = url;
-    if (isS && url && !out.seller) out.seller = url;
-  }
-  return out;
-}
 
 /* ---------- HOME payload (matches the portal's Home) ----------
    Home shows: upcoming events, recent updates, focus projects, and guide links.
@@ -668,33 +646,9 @@ function bootcampReview_(p) {
   return { ok: true, users: out, helpMap: helpAll };
 }
 
-/* ================= GUIDE REALTORS (Buyer Guide page) =================
-   Realtor name (col C) + photo (col E) from the Login tab, starting row 5.
-   The buyer's name is a variable typed into the app, not from the sheet.
-   Seller Guide is "coming soon" — no link yet. */
+/* ================= REALTOR HIDE-LIST =================
+   Non-selling accounts (admin, ISA, Follow Up Boss) that must never appear
+   in team rankings. Named for the Buyers Guide, which has been removed; the
+   leaderboard still filters on it. */
 var GUIDE_HIDE_ = ['rahul gupta', 'isa aurakeyrealty', 'office admin', 'pramodh chandrashekar', 'amar kaur', 'follow up boss', 'nav sodhi'];
 function guideIsAdmin_(name) { return GUIDE_HIDE_.indexOf(String(name || '').trim().toLowerCase()) >= 0; }
-function guideThumb_(url) {
-  url = String(url || '').trim(); if (!url) return '';
-  var m = url.match(/\/d\/([a-zA-Z0-9_-]{20,})/); if (!m) m = url.match(/[?&]id=([a-zA-Z0-9_-]{20,})/);
-  return m ? ('https://drive.google.com/thumbnail?id=' + m[1] + '&sz=w192') : url;   // 44px avatar; w192 stays sharp at 3x DPR
-}
-function getGuideRealtors_() {
-  try {
-    var hit = cacheGet_('guiderealtors_api'); if (hit) return hit;
-    var sh = loginTab_(), START_ROW = 5, NAME_COL = 2, PHOTO_COL = 4;   // C = name, E = photo
-    if (!sh || sh.getLastRow() < START_ROW) return { ok: true, realtors: [] };
-    var vals = sh.getDataRange().getDisplayValues(), first = START_ROW - 1, n = vals.length - first;
-    if (n < 1) return { ok: true, realtors: [] };
-    var rng = sh.getRange(START_ROW, PHOTO_COL + 1, n, 1), disp = rng.getDisplayValues(), rich = rng.getRichTextValues(), formulas = rng.getFormulas();
-    var out = [];
-    for (var i = 0; i < n; i++) {
-      var name = String(vals[first + i][NAME_COL] || '').trim(); if (!name) continue;
-      if (guideIsAdmin_(name)) continue;
-      var link = cellUrl_(rich[i][0], formulas[i][0], disp[i][0]);
-      out.push({ name: name, photo: guideThumb_(link) });
-    }
-    var res = { ok: true, realtors: out, links: getGuideLinks_() };
-    cachePut_('guiderealtors_api', res); return res;
-  } catch (e) { return { ok: false, error: String((e && e.message) || e), realtors: [] }; }
-}

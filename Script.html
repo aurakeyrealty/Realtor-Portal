@@ -15,7 +15,6 @@ var NAV=[
   {v:'basement',   t:'Basement Check',  ic:'M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z'},
   {v:'expenses',   t:'Home Expenses',   ic:'M4 4h16v16H4zM8 8h8M8 12h4'},
   {g:'Team'},
-  {v:'buyerguide', t:'Buyers Guide',    ic:'M4 5h16v14H4zM4 9h16'},
   {v:'callnight',  t:'Call Night',      ic:'M4 4h4l2 5-3 2a12 12 0 0 0 6 6l2-3 5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 2 6a2 2 0 0 1 2-2z'},
   {v:'leaderboard',t:'Leaderboard',     ic:'M6 21V10M12 21V4M18 21v-7'},
   {v:'resources',  t:'Resources',       ic:'M4 5h16v14H4zM4 9h16M9 5v14'},
@@ -25,7 +24,7 @@ var NAV=[
   {v:'websites',   t:'Websites',        ic:'M2 12h20M12 2a15 15 0 0 1 0 20M12 2a15 15 0 0 0 0 20'},
   {v:'faqs',       t:'FAQs',            ic:'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zM9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.8.4-1 .8-1 1.7M12 17h.01'}
 ];
-var SUB={home:'Your team hub, contacts and events.',cities:'Projects and builders by city.',listings:'Current active listings.',builders:'Builder reps and projects.',contractors:'Trusted concierge contacts.',schools:'Rankings by school.',findschool:'Find the school for an address.',crime:'Crime records by city.',tenants:'Search LTB orders.',basement:"Check a city's registration record.",expenses:'Estimate monthly carrying costs.',buyerguide:'Present the buyer guide.',callnight:'Call-night attendance.',leaderboard:'Team call leaderboard.',resources:'Guides and tools.',mydeals:'Your deals and follow-ups.',onboarding:'The onboarding bootcamp.',vacations:'Who is away and when.',websites:'Handy website links.',faqs:'Common questions.'};
+var SUB={home:'Your team hub, contacts and events.',cities:'Projects and builders by city.',listings:'Current active listings.',builders:'Builder reps and projects.',contractors:'Trusted concierge contacts.',schools:'Rankings by school.',findschool:'Find the school for an address.',crime:'Crime records by city.',tenants:'Search LTB orders.',basement:"Check a city's registration record.",expenses:'Estimate monthly carrying costs.',callnight:'Call-night attendance.',leaderboard:'Team call leaderboard.',resources:'Guides and tools.',mydeals:'Your deals and follow-ups.',onboarding:'The onboarding bootcamp.',vacations:'Who is away and when.',websites:'Handy website links.',faqs:'Common questions.'};
 
 var ICO={star:'M12 2l3 6 6 .9-4.5 4.3 1 6.3L12 16.8 6.5 19.5l1-6.3L3 8.9 9 8z',back:'M19 12H5M12 19l-7-7 7-7',chev:'M9 18l6-6-6-6',x:'M18 6L6 18M6 6l12 12'};
 function ico(name,sz){ sz=sz||15; return '<svg width="'+sz+'" height="'+sz+'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;flex:none"><path d="'+ICO[name]+'"/></svg>'; }
@@ -110,7 +109,7 @@ function closeDrawer(){$('drawer').classList.remove('on');$('scrim').classList.r
 
 var LOAD={home:loadHome,cities:loadCities,city:loadCityDetail,listings:loadListings,builders:loadBuilders,contractors:loadContractors,
   schools:loadSchools,findschool:loadFindSchool,crime:loadCrime,tenants:loadLTB,basement:loadBasement,expenses:loadExpenses,
-  buyerguide:loadGuide,callnight:loadCallnight,leaderboard:loadLeaderboard,resources:loadResources,
+  callnight:loadCallnight,leaderboard:loadLeaderboard,resources:loadResources,
   mydeals:loadMyDeals,onboarding:loadBootcamp,vacations:loadVacations,websites:loadWebsites,faqs:loadFaqs};
 function go(v,arg){
   closeDrawer();
@@ -138,6 +137,47 @@ function route(){
   (LOAD[v]||function(){$('content').innerHTML='<div class="empty">Coming soon.</div>';})(arg);
   RENDER_FRESH=false;                 // the render's fetches are issued; later in-screen calls use the cache
   restoreScroll(want);
+  paintEventBar();
+}
+
+/* ---- next-event banner: sits above the content on every screen, not just
+   Home, so the team sees it wherever they are ---- */
+var EVENT_DISMISSED=null;
+try{ EVENT_DISMISSED=localStorage.getItem('ak_ev_seen'); }catch(e){}
+function eventKey(ev){ return String(ev.iso||ev.date||'')+'|'+String(ev.title||''); }
+function paintEventBar(){
+  var bar=$('evbar'); if(!bar) return;
+  var ev=(HOME&&HOME.events&&HOME.events.length)?HOME.events[0]:null;
+  if(!ev){ bar.hidden=true; bar.innerHTML=''; if(!HOME) primeEventBar(); return; }
+  // (HOME is populated by loadHome on the home route; primeEventBar covers the rest)
+  if(eventKey(ev)===EVENT_DISMISSED){ bar.hidden=true; bar.innerHTML=''; return; }
+  var when=[ev.date,ev.time].filter(Boolean).join(' · ');
+  var line=[ev.location,ev.details].filter(Boolean).join(' · ');
+  bar.innerHTML='<span class="ev-dot" aria-hidden="true"></span>'
+    +'<div class="ev-tx"><b>Next event'+(when?' · '+esc(when):'')+'</b>'+(ev.title?'<span>'+esc(ev.title)+'</span>':'')+(line?'<i>'+esc(line)+'</i>':'')+'</div>'
+    +'<span class="ev-act">'
+      +(ev.link?'<a class="ev-go" href="'+esc(ev.link)+'" target="_blank" rel="noopener">Register</a>':'')
+      +'<button class="ev-x" id="evX" aria-label="Dismiss">'+ico('x',15)+'</button>'
+    +'</span>';
+  bar.hidden=false;
+  $('evX').addEventListener('click',function(){
+    EVENT_DISMISSED=eventKey(ev);
+    try{ localStorage.setItem('ak_ev_seen',EVENT_DISMISSED); }catch(e){}
+    bar.hidden=true; bar.innerHTML='';
+  });
+}
+/* a cold start can land on any screen, so fetch home once for the event —
+   but not on the home route itself, where loadHome is already fetching it
+   and cachedCall has no in-flight dedupe */
+var evPrimed=false;
+function primeEventBar(){
+  if(evPrimed) return;
+  if((location.hash||'#home').replace(/^#/,'').split('/')[0]==='home') return;
+  evPrimed=true;
+  cachedCallRaw('home').then(function(d){
+    if(d&&!HOME) HOME=d;
+    paintEventBar();
+  }).catch(function(){ evPrimed=false; });   // let a later screen try again
 }
 /* wait for the restored screen to grow tall enough, then put the user back where they were */
 function restoreScroll(y){
@@ -164,7 +204,7 @@ function mailBtn(e){
 var homeCat=null, HOME=null;
 function loadHome(){
   cachedCall('home').then(function(d){
-    HOME=d||{}; var h=stamp(d); var inst=installHtml(); if(inst) h+=inst;
+    HOME=d||{}; paintEventBar(); var h=stamp(d); var inst=installHtml(); if(inst) h+=inst;
     var focus=HOME.focus||[], events=HOME.events||[], groups=homeGroups(HOME.contacts||[]);
     var jumps=[];
     if(focus.length) jumps.push({id:'sec-focus',ic:1,label:'Focus ('+focus.length+')'});
@@ -176,7 +216,16 @@ function loadHome(){
       return '<div class="card"><span class="pill focus">Focus</span><div class="card-t">'+esc(p.project||p.name||'Project')+'</div>'+(p.city?'<div class="card-s">'+esc(p.city)+(meta?' · '+esc(meta):'')+'</div>':(meta?'<div class="card-s">'+esc(meta)+'</div>':''))+'<div class="lnkrow">'+linkBtn('Builder',p.broker_url)+linkBtn('Drive',p.drive_url)+linkBtn('Website',p.website_url)+'</div></div>';
     }).join(''); }
     if(events.length){ h+='<div class="sec-h" id="sec-events">Upcoming</div>'; h+=events.map(function(ev){
-      return '<div class="card"><div class="card-t">'+esc(ev.title||ev.name||ev.event||'Event')+'</div>'+(ev.date||ev.when?'<div class="card-s">'+esc(ev.date||ev.when)+'</div>':'')+(ev.desc||ev.detail||ev.body?'<div style="font-size:var(--fs-md);color:var(--ink2);margin-top:8px">'+esc(ev.desc||ev.detail||ev.body)+'</div>':'')+'</div>';
+      /* the server sends details/time/location/link — the old card read
+         ev.detail (singular) and dropped the rest, so none of it ever showed */
+      var when=[ev.date||ev.when,ev.time].filter(Boolean).join(' · ');
+      var body=ev.details||ev.desc||ev.detail||ev.body||'';
+      return '<div class="card"><div class="card-t">'+esc(ev.title||ev.name||ev.event||'Event')+'</div>'
+        +(when?'<div class="card-s">'+esc(when)+'</div>':'')
+        +(ev.location?kv('Where',ev.location):'')
+        +(body?'<div style="font-size:var(--fs-md);color:var(--ink2);margin-top:8px">'+esc(body)+'</div>':'')
+        +(ev.link?'<div class="lnkrow">'+linkBtn('Register',ev.link)+'</div>':'')
+        +'</div>';
     }).join(''); }
     if(groups.order.length){
       h+='<div class="sec-h" id="sec-contacts">Contacts</div><div class="chips" id="homeCats"></div><div id="homeContacts" style="margin-top:12px"></div>';
@@ -422,15 +471,45 @@ function fsPaint(res){
   }).join(''):'<div class="empty">No schools returned.</div>');
 }
 
+/* the upstream feed is Canada-wide — 423 cities, of which 57 are Ontario and
+   322 are Alberta. Default to Ontario and keep the rest behind a toggle. */
+var CRIME_LIST=[], crimeAll=false, crimeQ='';
+try{ crimeAll=localStorage.getItem('ak_crime_all')==='1'; }catch(e){}
 function loadCrime(slug){
   if(slug) return loadCrimeDetail(slug);
   cachedCall('crimecities').then(function(d){
     var cities=(d&&(d.cities||d.rows))||[];
-    var list=cities.map(function(c){return c.slug?c:{slug:String(c).toLowerCase(),name:c};});
-    $('content').innerHTML='<div class="card wide"><div class="card-s">Pick a city to see its recorded crime figures.</div></div><div id="crimechips"></div>';
-    $('crimechips').innerHTML=list.length?'<div class="rowlist">'+list.map(function(c){return '<button class="rowitem" data-s="'+esc(c.slug)+'">'+esc(c.name||c.slug)+'<span class="rmeta">'+ico('chev',14)+'</span></button>';}).join('')+'</div>':'<div class="empty">No cities.</div>';
-    $('crimechips').querySelectorAll('.rowitem').forEach(function(b){ b.addEventListener('click',function(){ go('crime', b.dataset.s); }); });
+    CRIME_LIST=cities.map(function(c){return c.slug?c:{slug:String(c).toLowerCase(),name:c};});
+    var onCount=CRIME_LIST.filter(crimeIsON).length;
+    $('content').innerHTML=stamp(d)
+      +'<div class="card wide"><div class="card-s">Pick a city to see its recorded crime figures.</div></div>'
+      +'<div class="seg" id="crimeScope"><button class="'+(crimeAll?'':'on')+'" data-a="0">Ontario</button><button class="'+(crimeAll?'on':'')+'" data-a="1">All Canada</button></div>'
+      +'<div class="fbar" style="margin-top:0.75rem"><input id="crimeq" type="search" placeholder="Filter cities…" autocomplete="off" value="'+esc(crimeQ)+'"></div>'
+      +'<div id="crimeCount" class="card-s" style="margin:0 2px 10px"></div>'
+      +'<div id="crimechips"></div>';
+    $('crimeScope').querySelectorAll('button').forEach(function(b){ b.addEventListener('click',function(){
+      var want=b.dataset.a==='1'; if(want===crimeAll) return;
+      crimeAll=want; try{ localStorage.setItem('ak_crime_all',crimeAll?'1':'0'); }catch(e){}
+      $('crimeScope').querySelectorAll('button').forEach(function(x){x.classList.toggle('on',x===b);});
+      paintCrimeCities();
+    }); });
+    $('crimeq').addEventListener('input',function(){ crimeQ=this.value; paintCrimeCities(); });
+    paintCrimeCities();
+    if(!onCount&&!crimeAll){ crimeAll=true; $('crimeScope').querySelectorAll('button').forEach(function(x){x.classList.toggle('on',x.dataset.a==='1');}); paintCrimeCities(); }
   }).catch(fail);
+}
+function crimeIsON(c){ return String(c.province||'').toUpperCase()==='ON'; }
+function paintCrimeCities(){
+  var q=crimeQ.trim().toLowerCase();
+  var list=CRIME_LIST.filter(function(c){
+    if(!crimeAll&&!crimeIsON(c)) return false;
+    return !q||String(c.name||c.slug||'').toLowerCase().indexOf(q)>=0;
+  });
+  $('crimeCount').textContent=list.length+(list.length===1?' city':' cities')+(crimeAll?' across Canada':' in Ontario')+(q?' matching “'+crimeQ.trim()+'”':'');
+  $('crimechips').innerHTML=list.length
+    ? '<div class="rowlist">'+list.map(function(c){ return '<button class="rowitem" data-s="'+esc(c.slug)+'">'+esc(c.name||c.slug)+'<span class="rmeta">'+(crimeAll&&c.province?esc(c.province)+' ':'')+ico('chev',14)+'</span></button>'; }).join('')+'</div>'
+    : '<div class="empty">No cities match.</div>';
+  $('crimechips').querySelectorAll('.rowitem').forEach(function(b){ b.addEventListener('click',function(){ go('crime', b.dataset.s); }); });
 }
 function fmtN(n){ n=Number(n)||0; return n.toLocaleString('en-US'); }
 function loadCrimeDetail(slug){
@@ -513,22 +592,6 @@ function calcEx(){
   var total=mort+tax/12+condo;
   function money(x){return '$'+Math.round(x).toLocaleString();}
   $('exOut').innerHTML='<div class="card"><div class="card-t">'+money(total)+' / month</div>'+kv('Mortgage',money(mort))+kv('Property tax',money(tax/12))+kv('Condo fees',money(condo))+kv('Loan amount',money(loan))+'<div class="warn" style="background:var(--blue-soft);border-color:var(--blue-line);color:var(--blue)">Estimate only — excludes insurance, utilities, and closing costs.</div></div>';
-}
-
-function loadGuide(){
-  cachedCall('guiderealtors').then(function(d){
-    var r=(d&&d.realtors)||[], links=(d&&d.links)||{}, buyers=links.buyers||'';
-    var h=stamp(d)+'<div class="card wide"><div class="card-s">'+(buyers?'Tap the realtor presenting — the Buyers Guide opens ready to walk through.':'No guide link found on the Dashboard sheet yet — add a “Buyers Guide” link there to activate this page.')+'</div></div>';
-    h+=r.map(function(x){
-      var av=x.photo?'<img class="avatar" loading="lazy" alt="" src="'+esc(x.photo)+'">':'<span class="avatar" style="display:grid;place-items:center;font-family:var(--f-disp);font-weight:700;font-size:var(--fs-base);color:var(--blue);background:var(--blue-soft)">'+esc(initials(x.name))+'</span>';
-      var inner=av+'<div class="card-t" style="margin:0;flex:1">'+esc(x.name)+'</div>';
-      return buyers?'<a class="card" style="display:flex;align-items:center;gap:12px;text-decoration:none" target="_blank" href="'+esc(buyers)+'">'+inner+'<span style="color:var(--mute)">'+ico('chev',16)+'</span></a>'
-                   :'<div class="card" style="display:flex;align-items:center;gap:12px;opacity:.55">'+inner+'</div>';
-    }).join('');
-    h+=links.seller?'<a class="card" style="display:block;text-decoration:none" target="_blank" href="'+esc(links.seller)+'"><div class="card-t">Seller Guide</div><div class="card-s">Open the guide '+ico('chev',12)+'</div></a>'
-                   :'<div class="card"><div class="card-t">Seller Guide</div><div class="card-s">Coming soon.</div></div>';
-    $('content').innerHTML=h;
-  }).catch(fail);
 }
 
 var CN=null, cnDate=null;
