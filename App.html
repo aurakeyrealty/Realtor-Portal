@@ -105,6 +105,10 @@ a{color:var(--blue)}
 .tabbar button{flex:1;background:none;border:0;display:flex;flex-direction:column;align-items:center;gap:3px;padding:8px 0 9px;font-size:10.5px;font-weight:600;color:var(--mute);min-height:52px;cursor:pointer}
 .tabbar button.on{color:var(--blue)}
 .tabbar svg{width:22px;height:22px}
+.toTop{position:fixed;bottom:calc(76px + env(safe-area-inset-bottom));right:max(14px,calc(50vw - 226px));width:46px;height:46px;border-radius:50%;border:0;background:var(--ink);color:#fff;display:grid;place-items:center;box-shadow:0 4px 14px rgba(6,14,18,.28);z-index:24;opacity:0;pointer-events:none;transform:translateY(8px);transition:opacity .18s,transform .18s;cursor:pointer}
+.toTop.show{opacity:1;pointer-events:auto;transform:none}
+@media(min-width:900px){.toTop{bottom:20px}}
+@media(prefers-reduced-motion:reduce){.toTop{transition:none}}
 .skel{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 15px;margin-bottom:11px}
 .skel .b{height:12px;border-radius:6px;background:linear-gradient(90deg,var(--line2) 25%,#F6F8F8 50%,var(--line2) 75%);background-size:200% 100%;animation:shimmer 1.2s infinite linear}
 @keyframes shimmer{from{background-position:200% 0}to{background-position:-200% 0}}
@@ -129,6 +133,7 @@ a{color:var(--blue)}
   </div>
   <div class="wrap"><div id="content"></div></div>
   <nav class="tabbar" id="tabbar" aria-label="Quick navigation"></nav>
+  <button class="toTop" id="toTop" aria-label="Back to top"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>
 </div>
 <div class="scrim" id="scrim" onclick="closeDrawer()"></div>
 <nav class="drawer" id="drawer">
@@ -707,6 +712,21 @@ function installHtml(){
 }
 function dismissInstall(){ try{localStorage.setItem('ak_install','1');}catch(e){} var el=$('inst'); if(el)el.style.display='none'; }
 
+/* back-to-top: appears past ~30% of the page (capped at 1500px so very long
+   lists don't hide it), one shared component for every screen */
+(function(){
+  var btn=$('toTop');
+  function update(){
+    var scrollable=document.documentElement.scrollHeight-window.innerHeight;
+    var threshold=Math.max(300, Math.min(scrollable*0.3, 1500));
+    btn.classList.toggle('show', scrollable>600 && window.scrollY>threshold);
+  }
+  window.addEventListener('scroll', update, {passive:true});
+  window.addEventListener('resize', update);
+  btn.addEventListener('click', function(){
+    window.scrollTo({top:0, behavior:(window.matchMedia&&matchMedia('(prefers-reduced-motion: reduce)').matches)?'auto':'smooth'});
+  });
+})();
 buildNav();
 buildTabs();
 window.addEventListener('hashchange', route);
