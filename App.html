@@ -177,18 +177,27 @@ function buildNav(){
 function openDrawer(){$('drawer').classList.add('on');$('scrim').classList.add('on');}
 function closeDrawer(){$('drawer').classList.remove('on');$('scrim').classList.remove('on');}
 
-var LOAD={home:loadHome,cities:loadCities,listings:loadListings,builders:loadBuilders,contractors:loadContractors,
+var LOAD={home:loadHome,cities:loadCities,city:loadCityDetail,listings:loadListings,builders:loadBuilders,contractors:loadContractors,
   schools:loadSchools,findschool:loadFindSchool,crime:loadCrime,tenants:loadLTB,basement:loadBasement,expenses:loadExpenses,
   buyerguide:loadGuide,callnight:loadCallnight,leaderboard:loadLeaderboard,resources:loadResources,
   mydeals:loadMyDeals,onboarding:loadBootcamp,vacations:loadVacations,websites:loadWebsites,faqs:loadFaqs};
-function go(v){
+function go(v,arg){
   closeDrawer();
-  var item=NAV.filter(function(n){return n.v===v;})[0]||{t:v};
-  $('scr-title').textContent=item.t; $('scr-sub').textContent=SUB[v]||'';
-  $('navlist').querySelectorAll('.dr-item').forEach(function(b){ b.classList.toggle('on', b.dataset.v===v); });
+  var h='#'+v+(arg!=null?'/'+encodeURIComponent(arg):'');
+  if(location.hash===h){ route(); } else { try{ location.hash=h; }catch(e){ route(); } }
+}
+function route(){
+  closeDrawer();
+  var h=(location.hash||'').replace(/^#/,''), parts=h.split('/');
+  var v=parts[0]||'home', arg=parts.length>1?decodeURIComponent(parts.slice(1).join('/')):null;
+  if(!LOAD[v]){ v='home'; arg=null; }
+  var item=NAV.filter(function(n){return n.v===v;})[0];
+  $('scr-title').textContent=item?item.t:(arg||v); $('scr-sub').textContent=item?(SUB[v]||''):'';
+  var navKey=(v==='city')?'cities':v;
+  $('navlist').querySelectorAll('.dr-item').forEach(function(b){ b.classList.toggle('on', b.dataset.v===navKey); });
   $('content').innerHTML='<div class="loading">Loading…</div>';
-  try{ location.hash=v; }catch(e){}
-  (LOAD[v]||function(){$('content').innerHTML='<div class="empty">Coming soon.</div>';})();
+  window.scrollTo(0,0);
+  (LOAD[v]||function(){$('content').innerHTML='<div class="empty">Coming soon.</div>';})(arg);
 }
 function fail(e){ $('content').innerHTML='<div class="err">Could not load — try again.<br><span style="color:var(--mute)">'+esc((e&&e.message)||e||'')+'</span></div>'; }
 
@@ -248,7 +257,7 @@ function loadCities(){
       +'<div class="seg"><button class="on" id="cAll">All</button><button id="cFocus">★ Focus only</button></div>'
       +'<div class="chips" id="alphaRow" style="margin-bottom:12px"></div>'
       +'<div class="card-s" id="cityCount" style="margin:0 2px 12px"></div>'
-      +'<div id="cityGrid"></div><div id="cityDetail" style="margin-top:16px"></div>';
+      +'<div id="cityGrid"></div>';
     $('citySearch').addEventListener('input',renderCities);
     $('cAll').addEventListener('click',function(){cityFocusOnly=false;$('cAll').classList.add('on');$('cFocus').classList.remove('on');renderCities();});
     $('cFocus').addEventListener('click',function(){cityFocusOnly=true;$('cFocus').classList.add('on');$('cAll').classList.remove('on');renderCities();});
@@ -274,21 +283,22 @@ function renderCities(){
     var tag=f?'<span style="color:var(--ochre);font-weight:700">★ '+f+'</span>':'<span style="color:var(--mute)">'+(c.count||0)+'</span>';
     return '<button class="citychip" data-c="'+esc(c.city)+'" style="display:flex;gap:8px;align-items:center">'+esc(c.city)+' '+tag+'</button>';
   }).join('')+'</div>':'<div class="empty">No cities match'+(q?' “'+esc(q)+'”':'')+'.</div>';
-  $('cityGrid').querySelectorAll('.citychip').forEach(function(b){ b.addEventListener('click',function(){ openCity(b.dataset.c); }); });
+  $('cityGrid').querySelectorAll('.citychip').forEach(function(b){ b.addEventListener('click',function(){ go('city', b.dataset.c); }); });
 }
-function openCity(name){
-  var box=$('cityDetail'); box.innerHTML='<div class="loading">Loading '+esc(name)+'…</div>';
+function backBtn(view,label){ return '<button class="lnk" onclick="go(\''+view+'\')" style="margin-bottom:12px">← '+esc(label)+'</button>'; }
+function loadCityDetail(name){
+  if(!name){ go('cities'); return; }
+  var back=backBtn('cities','All cities');
   call('city',{name:name}).then(function(d){
     var rows=(d&&d.rows)||[];
-    if(!rows.length){ box.innerHTML='<div class="empty">No projects for '+esc(name)+'.</div>'; return; }
+    if(!rows.length){ $('content').innerHTML=back+'<div class="empty">No projects for '+esc(name)+'.</div>'; return; }
     var focus=rows.filter(function(p){return /focus/i.test(p.status||'');}), rest=rows.filter(function(p){return !/focus/i.test(p.status||'');});
     var ordered=focus.concat(rest);
-    box.innerHTML='<div class="sec-h">'+esc(name)+' — '+rows.length+' projects</div>'+ordered.map(function(p){
+    $('content').innerHTML=back+'<div class="sec-h">'+esc(name)+' — '+rows.length+' projects</div>'+ordered.map(function(p){
       var foc=/focus/i.test(p.status||'');
       return '<div class="card">'+(foc?'<span class="pill focus">Focus</span>':'')+'<div class="card-t">'+esc(p.name||p.project||'Project')+'</div>'+(p.status&&!foc?'<div class="card-s">'+esc(p.status)+'</div>':'')+'<div class="lnkrow">'+linkBtn('Builder',p.broker_url)+linkBtn('Drive',p.drive_url)+linkBtn('Website',p.website_url)+'</div></div>';
     }).join('');
-    box.scrollIntoView({behavior:'smooth',block:'start'});
-  }).catch(function(){ box.innerHTML='<div class="err">Could not load '+esc(name)+'.</div>'; });
+  }).catch(function(){ $('content').innerHTML=back+'<div class="err">Could not load '+esc(name)+'.</div>'; });
 }
 
 var AL_DATA=[], alSection='all';
@@ -404,21 +414,24 @@ function fsPaint(res){
   }).join(''):'<div class="empty">No schools returned.</div>');
 }
 
-function loadCrime(){
+function loadCrime(slug){
+  if(slug) return loadCrimeDetail(slug);
   call('crimecities').then(function(d){
     var cities=(d&&(d.cities||d.rows))||[];
     var list=cities.map(function(c){return c.slug?c:{slug:String(c).toLowerCase(),name:c};});
-    $('content').innerHTML='<div class="card"><div class="card-s">Pick a city to see its recorded crime figures.</div></div><div class="chips" id="crimechips"></div><div id="crimeDetail" style="margin-top:16px"></div>';
+    $('content').innerHTML='<div class="card"><div class="card-s">Pick a city to see its recorded crime figures.</div></div><div class="chips" id="crimechips"></div>';
     $('crimechips').innerHTML=list.map(function(c){return '<button class="citychip" data-s="'+esc(c.slug)+'">'+esc(c.name||c.slug)+'</button>';}).join('')||'<div class="empty">No cities.</div>';
-    $('crimechips').querySelectorAll('.citychip').forEach(function(b){ b.addEventListener('click',function(){ openCrime(b.dataset.s, b.textContent); }); });
+    $('crimechips').querySelectorAll('.citychip').forEach(function(b){ b.addEventListener('click',function(){ go('crime', b.dataset.s); }); });
   }).catch(fail);
 }
-function openCrime(slug,label){
-  var box=$('crimeDetail'); box.innerHTML='<div class="loading">Loading '+esc(label)+'…</div>';
+function loadCrimeDetail(slug){
+  var label=String(slug).replace(/[-_]+/g,' ').replace(/\b\w/g,function(c){return c.toUpperCase();});
+  $('scr-title').textContent=label;
+  var back=backBtn('crime','All cities');
   call('crime',{slug:slug}).then(function(d){
-    if(!d||d.ok===false){ box.innerHTML='<div class="err">'+esc((d&&d.error)||'No data.')+'</div>'; return; }
-    box.innerHTML='<div class="sec-h">'+esc(label)+'</div>'+genCard(d.summary||d.totals||d);
-  }).catch(function(){ box.innerHTML='<div class="err">Could not load.</div>'; });
+    if(!d||d.ok===false){ $('content').innerHTML=back+'<div class="err">'+esc((d&&d.error)||'No data.')+'</div>'; return; }
+    $('content').innerHTML=back+'<div class="sec-h">'+esc(label)+'</div>'+genCard(d.summary||d.totals||d);
+  }).catch(fail);
 }
 
 function loadLTB(){
@@ -609,8 +622,8 @@ function installHtml(){
 function dismissInstall(){ try{localStorage.setItem('ak_install','1');}catch(e){} var el=$('inst'); if(el)el.style.display='none'; }
 
 buildNav();
-var start=(location.hash||'').replace('#',''); if(!LOAD[start]) start='home';
-go(start);
+window.addEventListener('hashchange', route);
+route();
 </script>
 </body>
 </html>
