@@ -36,8 +36,7 @@ a{color:var(--blue)}
 .topbar{background:var(--ink);color:#fff;position:sticky;top:0;z-index:20;padding:8px 16px;padding-top:calc(8px + env(safe-area-inset-top))}
 .hdr{background:var(--ink);color:#fff;padding:4px 16px 16px}
 .hdr-row{display:flex;align-items:center;gap:11px}
-.burger{background:none;border:0;padding:15px 12px;margin:-8px 0;display:grid;gap:4px;cursor:pointer}
-.burger span{width:20px;height:2px;background:#fff;display:block;border-radius:2px}
+.burger{background:none;border:0;padding:11px 12px 8px;margin:-8px 0;color:#fff;cursor:pointer}
 .mark{width:28px;height:28px;border-radius:4px;background:var(--blue);display:grid;place-items:center;font-family:var(--f-disp);font-weight:800;font-size:12px;color:#fff}
 .hdr-name{font-family:var(--f-disp);font-weight:800;font-size:13.5px}
 .hdr-crumb{font-family:var(--f-mono);font-size:11px;letter-spacing:.12em;color:#8CA5B0;text-transform:uppercase;margin-top:1px}
@@ -122,7 +121,7 @@ a{color:var(--blue)}
 <div class="phone">
   <div class="topbar">
     <div class="hdr-row">
-      <button class="burger" onclick="openDrawer()" aria-label="Menu"><span></span><span></span><span></span></button>
+      <button class="burger" onclick="openDrawer()" aria-label="Menu"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg></button>
       <div class="mark">AK</div>
       <div>
         <div class="hdr-name">Aura Key Realty</div>
@@ -174,6 +173,8 @@ var NAV=[
 ];
 var SUB={home:'Your team hub, contacts and events.',cities:'Projects and builders by city.',listings:'Current active listings.',builders:'Builder reps and projects.',contractors:'Trusted concierge contacts.',schools:'Rankings by school.',findschool:'Find the school for an address.',crime:'Crime records by city.',tenants:'Search LTB orders.',basement:"Check a city's registration record.",expenses:'Estimate monthly carrying costs.',buyerguide:'Present the buyer guide.',callnight:'Call-night attendance.',leaderboard:'Team call leaderboard.',resources:'Guides and tools.',mydeals:'Your deals and follow-ups.',onboarding:'The onboarding bootcamp.',vacations:'Who is away and when.',websites:'Handy website links.',faqs:'Common questions.'};
 
+var ICO={star:'M12 2l3 6 6 .9-4.5 4.3 1 6.3L12 16.8 6.5 19.5l1-6.3L3 8.9 9 8z',back:'M19 12H5M12 19l-7-7 7-7',chev:'M9 18l6-6-6-6',x:'M18 6L6 18M6 6l12 12'};
+function ico(name,sz){ sz=sz||15; return '<svg width="'+sz+'" height="'+sz+'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;flex:none"><path d="'+ICO[name]+'"/></svg>'; }
 function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
 function $(id){return document.getElementById(id);}
 function call(action,params){return new Promise(function(res,rej){google.script.run.withSuccessHandler(res).withFailureHandler(rej).app(action,params||{});});}
@@ -285,11 +286,11 @@ function loadHome(){
     HOME=d||{}; var h=stamp(d); var inst=installHtml(); if(inst) h+=inst;
     var focus=HOME.focus||[], events=HOME.events||[], groups=homeGroups(HOME.contacts||[]);
     var jumps=[];
-    if(focus.length) jumps.push({id:'sec-focus',label:'★ Focus ('+focus.length+')'});
+    if(focus.length) jumps.push({id:'sec-focus',ic:1,label:'Focus ('+focus.length+')'});
     if(events.length) jumps.push({id:'sec-events',label:'Upcoming ('+events.length+')'});
     if(groups.order.length) jumps.push({id:'sec-contacts',label:'Contacts ('+(HOME.contacts||[]).length+')'});
-    if(jumps.length>1) h+='<div class="chips" style="margin-bottom:14px">'+jumps.map(function(j){ return '<button class="citychip" data-j="'+j.id+'">'+esc(j.label)+'</button>'; }).join('')+'</div>';
-    if(focus.length){ h+='<div class="sec-h" id="sec-focus">★ Focus projects · '+focus.length+'</div>'; h+=focus.map(function(p){
+    if(jumps.length>1) h+='<div class="chips" style="margin-bottom:16px">'+jumps.map(function(j){ return '<button class="citychip" data-j="'+j.id+'">'+(j.ic?'<span style="color:var(--ochre)">'+ico('star',13)+'</span> ':'')+esc(j.label)+'</button>'; }).join('')+'</div>';
+    if(focus.length){ h+='<div class="sec-h" id="sec-focus"><span style="color:var(--ochre)">'+ico('star',13)+'</span> Focus projects · '+focus.length+'</div>'; h+=focus.map(function(p){
       var meta=[p.builder,p.type,p.occupancy].filter(Boolean).join(' · ');
       return '<div class="card"><span class="pill focus">Focus</span><div class="card-t">'+esc(p.project||p.name||'Project')+'</div>'+(p.city?'<div class="card-s">'+esc(p.city)+(meta?' · '+esc(meta):'')+'</div>':(meta?'<div class="card-s">'+esc(meta)+'</div>':''))+'<div class="lnkrow">'+linkBtn('Builder',p.broker_url)+linkBtn('Drive',p.drive_url)+linkBtn('Website',p.website_url)+'</div></div>';
     }).join(''); }
@@ -332,7 +333,7 @@ function loadCities(){
     CITY_DATA=(cc.cities||[]).map(function(c){ return (typeof c==='string')?{city:c,count:0}:{city:c.city||c.name||c.tab, count:c.count||c.projects||0}; });
     CITY_FOCUS={}; ((fo.rows)||[]).forEach(function(p){ var c=(p.city||'').toUpperCase(); if(c) CITY_FOCUS[c]=(CITY_FOCUS[c]||0)+1; });
     $('content').innerHTML=stamp(cc)+'<div class="fbar"><input id="citySearch" placeholder="Search a city…" value="'+esc(cityQ)+'"></div>'
-      +'<div class="seg"><button id="cAll" class="'+(cityFocusOnly?'':'on')+'">All</button><button id="cFocus" class="'+(cityFocusOnly?'on':'')+'">★ Focus only</button></div>'
+      +'<div class="seg"><button id="cAll" class="'+(cityFocusOnly?'':'on')+'">All</button><button id="cFocus" class="'+(cityFocusOnly?'on':'')+'">'+ico('star',13)+' Focus only</button></div>'
       +'<div class="card-s" id="cityCount" style="margin:0 2px 12px"></div>'
       +'<div id="cityGrid"></div>';
     $('citySearch').addEventListener('input',function(){cityQ=this.value;renderCities();});
@@ -353,12 +354,12 @@ function renderCities(){
   $('cityCount').textContent=rows.length+(rows.length===1?' city':' cities')+' · '+tot+(tot===1?' project':' projects');
   $('cityGrid').innerHTML=rows.length?'<div class="chips">'+rows.map(function(c){
     var f=focusCount(c.city);
-    var tag=f?'<span style="color:var(--ochre);font-weight:700">★ '+f+'</span>':'<span style="color:var(--mute)">'+(c.count||0)+'</span>';
+    var tag=f?'<span style="color:var(--ochre);font-weight:700">'+ico('star',12)+' '+f+'</span>':'<span style="color:var(--mute)">'+(c.count||0)+'</span>';
     return '<button class="citychip" data-c="'+esc(c.city)+'" style="display:flex;gap:8px;align-items:center">'+esc(c.city)+' '+tag+'</button>';
   }).join('')+'</div>':'<div class="empty">No cities match'+(q?' “'+esc(q)+'”':'')+'.</div>';
   $('cityGrid').querySelectorAll('.citychip').forEach(function(b){ b.addEventListener('click',function(){ go('city', b.dataset.c); }); });
 }
-function backBtn(view,label){ return '<button class="lnk" onclick="go(\''+view+'\')" style="margin-bottom:12px">← '+esc(label)+'</button>'; }
+function backBtn(view,label){ return '<button class="lnk" onclick="go(\''+view+'\')" style="margin-bottom:12px">'+ico('back',14)+' '+esc(label)+'</button>'; }
 function loadCityDetail(name){
   if(!name){ go('cities'); return; }
   var back=backBtn('cities','All cities');
@@ -583,7 +584,7 @@ function runBC(){
     var cls=BCC[r.colour]||'c-grey', nexts=(r.next||[]).map(function(x){return '<li>'+esc(x)+'</li>';}).join('');
     var ev=r.evidence||{}, rows=Object.keys(ev).map(function(k){return kv(k,ev[k]);}).join('');
     var sayPlain=String(r.say||'').replace(/<\/?em>/g,'');
-    $('bcRes').innerHTML='<div class="card"><span class="stamp '+cls+'"><b>'+esc(r.statusLabel||'')+'</b></span><div class="card-t" style="margin-top:11px">'+esc(v)+'</div><p class="seclbl">Say this to your client</p><div class="say">'+(r.say||'')+'</div><button class="copy" id="bccp"><span>Copy wording</span></button>'+(nexts?'<p class="seclbl">Your next step</p><ul class="next">'+nexts+'</ul>':'')+(rows?'<details class="ev"><summary>Where this came from ›</summary>'+rows+'</details>':'')+'<div class="warn"><b>Never describe a unit as legal off this screen.</b> This reports a municipal record on the date shown — not a legal ruling.</div></div>';
+    $('bcRes').innerHTML='<div class="card"><span class="stamp '+cls+'"><b>'+esc(r.statusLabel||'')+'</b></span><div class="card-t" style="margin-top:11px">'+esc(v)+'</div><p class="seclbl">Say this to your client</p><div class="say">'+(r.say||'')+'</div><button class="copy" id="bccp"><span>Copy wording</span></button>'+(nexts?'<p class="seclbl">Your next step</p><ul class="next">'+nexts+'</ul>':'')+(rows?'<details class="ev"><summary>Where this came from '+ico('chev',12)+'</summary>'+rows+'</details>':'')+'<div class="warn"><b>Never describe a unit as legal off this screen.</b> This reports a municipal record on the date shown — not a legal ruling.</div></div>';
     $('bccp').addEventListener('click',function(){ copyText(sayPlain); var s=this.querySelector('span'),o=s.textContent; s.textContent='Copied'; setTimeout(function(){s.textContent=o;},1400); });
   }).catch(fail);
 }
@@ -609,10 +610,10 @@ function loadGuide(){
     h+=r.map(function(x){
       var av=x.photo?'<img class="avatar" loading="lazy" alt="" src="'+esc(x.photo)+'">':'<span class="avatar" style="display:grid;place-items:center;font-family:var(--f-disp);font-weight:700;font-size:15px;color:var(--blue);background:var(--blue-soft)">'+esc(initials(x.name))+'</span>';
       var inner=av+'<div class="card-t" style="margin:0;flex:1">'+esc(x.name)+'</div>';
-      return buyers?'<a class="card" style="display:flex;align-items:center;gap:12px;text-decoration:none" target="_blank" href="'+esc(buyers)+'">'+inner+'<span style="color:var(--mute);font-size:18px">›</span></a>'
+      return buyers?'<a class="card" style="display:flex;align-items:center;gap:12px;text-decoration:none" target="_blank" href="'+esc(buyers)+'">'+inner+'<span style="color:var(--mute)">'+ico('chev',16)+'</span></a>'
                    :'<div class="card" style="display:flex;align-items:center;gap:12px;opacity:.55">'+inner+'</div>';
     }).join('');
-    h+=links.seller?'<a class="card" style="display:block;text-decoration:none" target="_blank" href="'+esc(links.seller)+'"><div class="card-t">Seller Guide</div><div class="card-s">Open the guide ›</div></a>'
+    h+=links.seller?'<a class="card" style="display:block;text-decoration:none" target="_blank" href="'+esc(links.seller)+'"><div class="card-t">Seller Guide</div><div class="card-s">Open the guide '+ico('chev',12)+'</div></a>'
                    :'<div class="card"><div class="card-t">Seller Guide</div><div class="card-s">Coming soon.</div></div>';
     $('content').innerHTML=h;
   }).catch(fail);
@@ -741,7 +742,7 @@ function copyText(t){ try{ if(navigator.clipboard&&navigator.clipboard.writeText
 function installHtml(){
   try{ var st=window.navigator.standalone||(window.matchMedia&&window.matchMedia('(display-mode: standalone)').matches); if(st) return ''; if(localStorage.getItem('ak_install')==='1') return ''; }catch(e){}
   var ua=navigator.userAgent||'', tip=/iPhone|iPad|iPod/i.test(ua)?'Tap Share, then “Add to Home Screen”.':(/Android/i.test(ua)?'Tap the ⋮ menu, then “Add to Home screen” — it opens in your browser.':'Open on your phone to add it to your home screen.');
-  return '<div class="install" id="inst"><button class="x" onclick="dismissInstall()">&times;</button><b>Add to your home screen.</b> '+tip+'</div>';
+  return '<div class="install" id="inst"><button class="x" onclick="dismissInstall()" aria-label="Dismiss">'+ico('x',15)+'</button><b>Add to your home screen.</b> '+tip+'</div>';
 }
 function dismissInstall(){ try{localStorage.setItem('ak_install','1');}catch(e){} var el=$('inst'); if(el)el.style.display='none'; }
 
