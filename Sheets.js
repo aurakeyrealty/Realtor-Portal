@@ -261,25 +261,45 @@ function getCities_() {
   cachePut_('cities_api', res); return res;
 }
 
-/* ================= LOGIN ================= */
+/* ================= LOGIN =================
+   Credentials live in their own spreadsheet, separate from the team's main sheet,
+   so realtor passwords are not visible to everyone the main sheet is shared with.
+   Its ID is the LOGIN_SHEET_ID Script Property (Project Settings -> Script
+   Properties). If unset, we fall back to the main sheet — so an existing LOGIN tab
+   there keeps working with no lockout until the ID is set. */
+function loginSS_() {
+  var id = '';
+  try { id = String(PropertiesService.getScriptProperties().getProperty('LOGIN_SHEET_ID') || '').trim(); } catch (e) {}
+  if (!id) return ssFor_('main');   // unset -> credentials still live in the main sheet
+  // Set-but-unreachable is NOT the same as unset. Silently falling back to the
+  // shared main sheet would defeat the split (and hash passwords into the wrong
+  // sheet), so a bad ID or a permissions gap fails loud instead.
+  try { return SpreadsheetApp.openById(id); }
+  catch (e) { throw new Error('LOGIN_SHEET_ID is set but the sheet could not be opened — check the ID and that the deploying account has access: ' + ((e && e.message) || e)); }
+}
+/* Shared header canonicalization for the LOGIN tab, so the row reader and the
+   password-cell locator resolve columns the same way (matched by name, not order). */
+function loginNorm_(h) { return String(h || '').trim().toLowerCase().replace(/\s+/g, '_'); }
+function loginCanon_(h) {
+  if (/^(username|user_?name|user_?id|userid|login|user)$/.test(h)) return 'username';
+  if (/^(password|pass|pwd|passcode)$/.test(h)) return 'password';
+  if (/^(email|e_?mail|email_?id)$/.test(h)) return 'email';
+  if (/^(name|full_?name|realtor_?name|agent_?name|realtor|agent)$/.test(h)) return 'name';
+  return h;
+}
 function loginTab_() {
-  var sheets = ssFor_('main').getSheets();
+  var sheets = loginSS_().getSheets();
   for (var i = 0; i < sheets.length; i++) { var n = sheets[i].getName().toUpperCase().replace(/\s+/g, ''); if (n.indexOf('LOGIN') >= 0 || n.indexOf('REALTOR') >= 0) return sheets[i]; }
   return null;
 }
 function loginRows_() {
   var sh = loginTab_(); if (!sh || sh.getLastRow() < LOGIN_HEADER_ROW) return [];
   var last = sh.getLastRow();
-  var vals = sh.getRange(LOGIN_HEADER_ROW, LOGIN_FIRST_COL, last - LOGIN_HEADER_ROW + 1, LOGIN_NUM_COLS).getDisplayValues();
-  function norm(h) { return String(h || '').trim().toLowerCase().replace(/\s+/g, '_'); }
-  function canon(h) {
-    if (/^(username|user_?name|user_?id|userid|login|user)$/.test(h)) return 'username';
-    if (/^(password|pass|pwd|passcode)$/.test(h)) return 'password';
-    if (/^(email|e_?mail|email_?id)$/.test(h)) return 'email';
-    if (/^(name|full_?name|realtor_?name|agent_?name|realtor|agent)$/.test(h)) return 'name';
-    return h;
-  }
-  var keys = vals[0].map(norm).map(canon), out = [];
+  // Read only the columns that exist — the sheet may have exactly the four it needs
+  // (username, password, name, email); columns are then matched by header, not position.
+  var ncols = Math.min(LOGIN_NUM_COLS, sh.getLastColumn());
+  var vals = sh.getRange(LOGIN_HEADER_ROW, LOGIN_FIRST_COL, last - LOGIN_HEADER_ROW + 1, ncols).getDisplayValues();
+  var keys = vals[0].map(loginNorm_).map(loginCanon_), out = [];
   for (var r = 1; r < vals.length; r++) { var o = {}; keys.forEach(function (k, i) { o[k] = vals[r][i]; }); if (o.username) out.push(o); }
   return out;
 }
@@ -302,18 +322,76 @@ function loginFailed_(user) {
 }
 function loginOk_(user) { try { CacheService.getScriptCache().remove(loginFailKey_(user)); } catch (e) {} }
 
+/* ---- password storage ----
+   Sheet passwords are stored as a salted SHA-256 hash, prefixed 'sha256$'. The
+   username is the salt (so no extra sheet column) and a project-wide PASSWORD_PEPPER
+   from Script Properties is mixed in, so a leaked sheet alone can't be reversed.
+   Legacy rows are still plaintext; they migrate to a hash on first sign-in. */
+var PW_SCHEME = 'sha256$';
+function pepper_() {
+  var v = '';
+  try { v = String(PropertiesService.getScriptProperties().getProperty('PASSWORD_PEPPER') || '').trim(); } catch (e) {}
+  if (!v) throw new Error('PASSWORD_PEPPER is not set in Script Properties — refusing to hash or verify passwords.');
+  return v;
+}
+function hashPw_(username, pass) {
+  var raw = pepper_() + '|' + String(username || '').trim().toLowerCase() + '|' + String(pass || '');
+  return PW_SCHEME + Utilities.base64EncodeWebSafe(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, raw));
+}
+function pwIsHashed_(stored) { return String(stored || '').indexOf(PW_SCHEME) === 0; }
+function pwMatches_(username, pass, stored) {
+  stored = String(stored || '');
+  if (pwIsHashed_(stored)) return hashPw_(username, pass) === stored;
+  return stored === pass;   // legacy plaintext — migrated to a hash on success
+}
+/* Find the exact LOGIN cell holding this user's password, so a migrated hash
+   can be written back in place. Mirrors loginRows_' header canonicalization. */
+function pwCell_(sh, username) {
+  if (!sh || sh.getLastRow() < LOGIN_HEADER_ROW) return null;
+  var last = sh.getLastRow();
+  var ncols = Math.min(LOGIN_NUM_COLS, sh.getLastColumn());
+  var vals = sh.getRange(LOGIN_HEADER_ROW, LOGIN_FIRST_COL, last - LOGIN_HEADER_ROW + 1, ncols).getDisplayValues();
+  var keys = vals[0].map(loginNorm_).map(loginCanon_);
+  var userIdx = keys.indexOf('username'), passIdx = keys.indexOf('password');
+  if (userIdx < 0 || passIdx < 0) return null;
+  var want = String(username || '').trim().toLowerCase();
+  for (var r = 1; r < vals.length; r++) {
+    if (String(vals[r][userIdx] || '').trim().toLowerCase() === want) {
+      return { row: LOGIN_HEADER_ROW + r, col: LOGIN_FIRST_COL + passIdx };
+    }
+  }
+  return null;
+}
+/* Lazy migration: replace a plaintext password cell with its hash. The cell is
+   located INSIDE the lock (re-read after acquiring it), so a concurrent row
+   insert/delete can't leave us writing to a stale row. Wrapped so any failure
+   (locked sheet, missing pepper) can never block an already-valid login. */
+function migratePw_(username, pass) {
+  try {
+    var hashed = hashPw_(username, pass), sh = loginTab_();
+    if (!sh) return;
+    var lock = LockService.getScriptLock();
+    try { lock.waitLock(5000); } catch (e) { return; }
+    try {
+      var loc = pwCell_(sh, username);
+      if (loc) sh.getRange(loc.row, loc.col).setValue(hashed);
+    } finally { lock.releaseLock(); }
+  } catch (e) { /* migration is best-effort; a valid sign-in must still succeed */ }
+}
+
 function handleLogin_(p) {
   var user = String(p.user || p.id || p.username || '').trim(), pass = String(p.pass || p.password || '');
   if (!user || !pass) return { ok: false, error: 'missing id or password' };
   // Charged before the comparison, so the wait cannot be read as a hit or a miss.
   var wait = loginDelay_(user); if (wait) Utilities.sleep(wait);
   // IDs are matched case-insensitively, as usernames normally are. Passwords are not.
-  if (user.toLowerCase() === ADMIN_ID && pass === ADMIN_PASSCODE) { loginOk_(user); return { ok: true, admin: true, name: 'Admin', role: 'admin', token: makeToken_('admin', 'admin') }; }
-  if (user.toLowerCase() === 'demo' && pass === 'demo') { loginOk_(user); return { ok: true, demo: true, name: 'Demo', role: 'demo', token: makeToken_('demo', 'demo') }; }
+  var ap = adminPass_();
+  if (ap && user.toLowerCase() === ADMIN_ID && pass === ap) { loginOk_(user); return { ok: true, admin: true, name: 'Admin', role: 'admin', token: makeToken_('admin', 'admin') }; }
   var rows = loginRows_();
   for (var i = 0; i < rows.length; i++) {
-    var u = String(rows[i].username || '').trim(), pw = String(rows[i].password || '');
-    if (u && u.toLowerCase() === user.toLowerCase() && pw === pass) {
+    var u = String(rows[i].username || '').trim(), stored = String(rows[i].password || '');
+    if (u && u.toLowerCase() === user.toLowerCase() && pwMatches_(u, pass, stored)) {
+      if (!pwIsHashed_(stored)) migratePw_(u, pass);   // legacy plaintext -> hash on first sign-in
       loginOk_(user);
       return { ok: true, name: rows[i].name || u, email: rows[i].email || '', role: 'realtor', token: makeToken_(u, 'realtor') };
     }
@@ -325,7 +403,7 @@ function handleLogin_(p) {
 /* Is this token still backed by a live account? Delete someone's LOGIN row and
    they lose access within the cache window below -- without it, a signed token
    outlives the account it was issued to. Only usernames are cached, never the
-   passwords beside them. The two built-in logins are not sheet rows. */
+   passwords beside them. The built-in admin login is not a sheet row. */
 function activeUsers_() {
   var c = null, hit = null;
   try { c = CacheService.getScriptCache(); hit = c.get('active_users'); } catch (e) {}
@@ -341,7 +419,7 @@ function activeUsers_() {
 function userStillActive_(user) {
   var u = String(user || '').trim().toLowerCase();
   if (!u) return false;
-  if (u === ADMIN_ID || u === 'demo') return true;
+  if (u === ADMIN_ID) return true;   // built-in admin is not a sheet row
   return activeUsers_().indexOf(u) >= 0;
 }
 function makeToken_(user, role) {
@@ -387,5 +465,5 @@ function listTabs() {
 }
 function debugLogin() {
   var rows = loginRows_(); Logger.log('total rows = ' + rows.length);
-  for (var i = 0; i < rows.length; i++) Logger.log(i + ' user=[' + rows[i].username + '] name=[' + rows[i].name + '] pass_len=' + String(rows[i].password || '').length);
+  for (var i = 0; i < rows.length; i++) Logger.log(i + ' user=[' + rows[i].username + '] name=[' + rows[i].name + '] hashed=' + pwIsHashed_(rows[i].password));
 }

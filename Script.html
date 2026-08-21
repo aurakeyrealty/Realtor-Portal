@@ -30,7 +30,23 @@ var ICO={star:'M12 2l3 6 6 .9-4.5 4.3 1 6.3L12 16.8 6.5 19.5l1-6.3L3 8.9 9 8z',b
 function ico(name,sz){ sz=sz||15; return '<svg width="'+sz+'" height="'+sz+'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;flex:none"><path d="'+ICO[name]+'"/></svg>'; }
 function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
 function $(id){return document.getElementById(id);}
-function call(action,params){return new Promise(function(res,rej){google.script.run.withSuccessHandler(res).withFailureHandler(rej).app(action,params||{});});}
+/* A gated action refusing the token ('login required' / expired / revoked) means
+   the session is gone. Detect it in one place so every screen re-gates the way My
+   Deals and Bootcamp already do — not an "admin only" authorization refusal, which
+   is a valid session lacking a role and must NOT sign the user out. */
+function isAuthErr(d){ return !!(d&&d.ok===false&&/\b(login|token|auth)\b/i.test(String(d.error||''))); }
+/* Every server action requires a token except login/session. Attach it here so
+   no call site can forget it — login ignores the field, session sets its own. */
+function call(action,params){
+  var p=params||{};
+  if(action!=='login'&&TOKEN&&p.auth==null){ var q={}; for(var k in p) q[k]=p[k]; q.auth=TOKEN; p=q; }
+  return new Promise(function(res,rej){
+    google.script.run.withSuccessHandler(function(d){
+      if(action!=='login'&&isAuthErr(d)) sessionLost();   // central re-gate
+      res(d);
+    }).withFailureHandler(rej).app(action,p);
+  });
+}
 /* read-through cache: instant back-navigation, offline fallback, manual refresh */
 var MEM={}, FRESH=false, RENDER_FRESH=false, CACHE_TTL=600000, RENDER_SEQ=0;
 var STALE_ERR={stale:true};
@@ -48,6 +64,7 @@ function cachedCallRaw(action,params){
   var p=params||{};
   if(fresh){ p={}; for(var kk in params) p[kk]=params[kk]; p.fresh=1; }
   return call(action,p).then(function(d){
+    if(isAuthErr(d)) return d;   // never cache a 'login required' refusal
     MEM[k]={data:d,at:Date.now()};
     try{ var sj=JSON.stringify({data:d,at:Date.now()}); if(sj.length<200000) localStorage.setItem('akc_'+k,sj); }catch(e){}
     return d;

@@ -492,7 +492,7 @@ function myTickets_(username) {
     .map(function (t) { return { ticket_id: t.ticket_id, document: t.document, status: t.status || 'Open', raised: t.raised_date, closed: t.closed_date, notes: t.notes }; });
 }
 function getMyDealsPayload_(p) {
-  var tok = checkToken_(p.auth || ''); if (!tok) return { ok: false, error: 'login required' };
+  var tok = (p && p.__tok) || checkToken_(p.auth || ''); if (!tok) return { ok: false, error: 'login required' };
   var username = tok.user;
   var matchName = matchNameForUser_(username);
   if (!matchName) return { ok: false, error: 'no deal profile for this user' };
@@ -599,7 +599,7 @@ function bootcampFullName_(user) {
 }
 /* Self bootcamp view: plan for a week + this user's progress */
 function getBootcampPayload_(p) {
-  var tok = checkToken_(p.auth || ''); if (!tok) return { ok: false, error: 'login required' };
+  var tok = (p && p.__tok) || checkToken_(p.auth || ''); if (!tok) return { ok: false, error: 'login required' };
   // My Deals fails closed on a deleted row via matchNameForUser_; this one has to
   // ask, or a removed realtor keeps reading the bootcamp until the token lapses.
   if (!userStillActive_(tok.user)) return { ok: false, error: 'login required' };
@@ -608,7 +608,7 @@ function getBootcampPayload_(p) {
 }
 /* Admin review across weeks 0..4 (admin token only) */
 function bootcampReview_(p) {
-  var tok = checkToken_(p.auth || ''); if (!tok || tok.role !== 'admin') return { ok: false, error: 'admin only' };
+  var tok = (p && p.__tok) || checkToken_(p.auth || ''); if (!tok || tok.role !== 'admin') return { ok: false, error: 'admin only' };
   if (!userStillActive_(tok.user)) return { ok: false, error: 'admin only' };
   var sh = onbProgressSheet_(), m = onbProgMap_();
   var plans = {};

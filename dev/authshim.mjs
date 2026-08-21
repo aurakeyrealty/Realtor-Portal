@@ -17,16 +17,36 @@ import crypto from 'node:crypto';
 const ROOT = new URL('..', import.meta.url);
 const b64web = (b) => Buffer.from(b).toString('base64').replace(/\+/g, '-').replace(/\//g, '_');
 
-/* Stand-ins for the local LOGIN tab. Passwords are case-sensitive, as on the server. */
+/* Dev-only Script Properties. The server now fails closed without TOKEN_SECRET /
+   PASSWORD_PEPPER, so the harness must supply them. Not real secrets. */
+const DEV_PROPS = {
+  TOKEN_SECRET: 'dev-token-secret-not-a-real-key',
+  PASSWORD_PEPPER: 'dev-password-pepper-not-a-real-secret',
+  ADMIN_PASSCODE: 'dev-admin-pass',
+};
+/* Server hash format, replicated here to seed a pre-hashed fixture row:
+   'sha256$' + base64url(SHA-256(pepper + '|' + lower(username) + '|' + password)) */
+const devHash = (username, password) =>
+  'sha256$' + b64web(crypto.createHash('sha256')
+    .update(DEV_PROPS.PASSWORD_PEPPER + '|' + String(username).toLowerCase() + '|' + password)
+    .digest());
+
+/* Stand-ins for the local LOGIN tab. Passwords are case-sensitive, as on the server.
+   'harvinder' / 'priya' are legacy plaintext (exercise the migrate-on-login path);
+   'nadia' is already hashed (exercise the hashed-compare path). The write-back that
+   migration performs on the real sheet is a no-op here — loginRows_ is overridden
+   below with an in-memory fixture, so there is no sheet cell to update. */
 export const FIXTURE_USERS = [
   { username: 'harvinder', name: 'Harvinder Babra', email: 'h@example.com', password: 'Summer2026' },
   { username: 'priya', name: 'Priya S', email: 'p@example.com', password: 'Autumn2026' },
+  { username: 'nadia', name: 'Nadia K', email: 'n@example.com', password: devHash('nadia', 'Winter2026') },
 ];
 
 const cache = new Map();
 const ctx = createContext({
   console,
-  PropertiesService: { getScriptProperties: () => ({ getProperty: () => null }) },
+  PropertiesService: { getScriptProperties: () => ({ getProperty: (k) => DEV_PROPS[k] ?? null }) },
+  LockService: { getScriptLock: () => ({ waitLock() {}, releaseLock() {} }) },
   CacheService: {
     getScriptCache: () => ({
       get: (k) => cache.get(k) ?? null,

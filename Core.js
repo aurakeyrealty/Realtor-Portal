@@ -6,12 +6,16 @@
 /**
  * Realtor Portal — Mobile data API
  * ================================
- * SEPARATE project. Deploy: Web app > Execute as: Me > Access: Anyone.
+ * Deploy: Web app > Execute as: Me > Access: Anyone (anonymous). The anonymous
+ * access is deliberate — realtors may have no Google account and the login gate
+ * itself must be publicly reachable. Access control is our own token layer:
  *
- * Public (no login):  tab, tabs, getSchools, getRankings, contacts, resources,
- *                     contractors, websites, cities
- * Login required:     city, builders, listings   (they carry logins / deal codes)
- *   -> pass &auth=<token from login> on those.
+ *   Public (no token):  login, session   (they mint / refresh a token)
+ *   Token required:     everything else  (see requireAuth_ / app())
+ *
+ * The signed token rides in `auth` on every call. The client's call() attaches
+ * it automatically; the two credential-carrying actions (login, session) are
+ * POST-only so a password or token never lands in a query string / the exec log.
  */
 
 var SHEETS = {
@@ -22,33 +26,36 @@ var SHEETS = {
 var DEFAULT_SHEET = 'main';
 var API_TOKEN = '';                       // app-level secret; '' = off
 
+/* The admin username is not a secret; the passcode is. It lives in Script
+   Properties (Project Settings -> Script Properties -> ADMIN_PASSCODE), never in
+   source. If the property is unset, adminPass_() returns null and admin sign-in
+   is disabled — fail closed rather than ship a hardcoded passcode. */
 var ADMIN_ID = 'admin';
-var ADMIN_PASSCODE = 'aurakey2026';
+function adminPass_() {
+  try { var v = String(PropertiesService.getScriptProperties().getProperty('ADMIN_PASSCODE') || '').trim(); return v || null; }
+  catch (e) { return null; }
+}
 
-/* Signing key for session tokens. The literal below is a placeholder and is
-   readable by anyone with the project or the repo, so a real one belongs in
-   Script Properties (Project Settings -> Script Properties -> TOKEN_SECRET).
-   Until that property is set the fallback keeps existing sessions working —
-   but the expiry and the role in a token are only as trustworthy as this key. */
-var TOKEN_SECRET = 'CHANGE_ME_to_a_long_random_string_2f8b1';
+/* Signing key for session tokens. It MUST live in Script Properties
+   (Project Settings -> Script Properties -> TOKEN_SECRET). There is deliberately
+   NO in-source fallback: signing with a committed placeholder would let anyone
+   holding the source forge a session token, including an admin one. When the
+   property is missing we fail closed — issuing and verifying tokens throw, so
+   nobody can sign in until a real key is set. Run checkSecret() for status. */
 var __SECRET = null;
 function tokenSecret_() {
   if (__SECRET) return __SECRET;
   var v = '';
   try { v = String(PropertiesService.getScriptProperties().getProperty('TOKEN_SECRET') || '').trim(); } catch (e) {}
-  // Whatever is set IS the key. Quietly rejecting a weak one and reverting to the
-  // placeholder would leave the project looking secured while it is not.
   if (v) { __SECRET = v; return __SECRET; }
-  console.warn('TOKEN_SECRET is not set in Script Properties — signing with the placeholder in Core.js. '
-    + 'Anyone holding the source can forge a session token, including an admin one. Run checkSecret() for status.');
-  __SECRET = TOKEN_SECRET;
-  return __SECRET;
+  throw new Error('TOKEN_SECRET is not set in Script Properties — refusing to sign or verify tokens. '
+    + 'Set it in Project Settings -> Script Properties.');
 }
 /** Editor helper: is a real signing key live? Reports status, never the key. */
 function checkSecret() {
   var v = '';
   try { v = String(PropertiesService.getScriptProperties().getProperty('TOKEN_SECRET') || '').trim(); } catch (e) {}
-  if (!v) { Logger.log('TOKEN_SECRET: NOT SET — using the placeholder in Core.js. Tokens are forgeable.'); return 'NOT SET'; }
+  if (!v) { Logger.log('TOKEN_SECRET: NOT SET — token issuance and verification are disabled (fail closed). Set it in Project Settings.'); return 'NOT SET'; }
   var fp = Utilities.base64EncodeWebSafe(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, v)).slice(0, 8);
   Logger.log('TOKEN_SECRET: set, ' + v.length + ' chars, fingerprint ' + fp
     + (v.length < 32 ? '  (32+ random chars recommended)' : ''));
@@ -170,13 +177,13 @@ function doGet(e) {
   // and every proxy on the way. These two are POST-only; doPost carries them.
   if (a === 'login' || a === 'session') return json_({ ok: false, error: 'use POST for ' + a });
 
-  // doGet-only actions
-  if (a === 'tabs') { var o = {}; Object.keys(ALLOW).forEach(function (k) { o[k] = ALLOW[k].slice(); }); return json_({ sheets: o }); }
-  if (a === 'tab')   return json_(readTab_(p.name || '', p.sheet || '', p.headerRow || ''));
-  if (a === 'bootcampreview') return json_(bootcampReview_(p));       // admin token only
+  // doGet-only actions — gated like everything else (see requireAuth_).
+  // (bootcampreview now lives in app()'s switch so an admin token never rides a GET.)
+  if (a === 'tabs') { if (!requireAuth_(p)) return json_({ ok: false, error: 'login required' }); var o = {}; Object.keys(ALLOW).forEach(function (k) { o[k] = ALLOW[k].slice(); }); return json_({ sheets: o }); }
+  if (a === 'tab')   { if (!requireAuth_(p)) return json_({ ok: false, error: 'login required' }); return json_(readTab_(p.name || '', p.sheet || '', p.headerRow || '')); }
 
   // Everything else goes through app()'s switch — ONE dispatch table, no drift.
-  // (All reference pages are OPEN, team-only app; login gates My Deals + Bootcamp.)
+  // Every action there requires a valid token except login/session.
   return json_(app(a, p));
 }
 
@@ -196,8 +203,23 @@ function doPost(e) {
    Mirrors the JSON routing but returns objects. Single public entry so the
    underscore helpers stay private.
    ===================================================================== */
+/* One gate for the whole dispatcher. Every action needs a valid, still-active
+   session token except login/session, which mint or refresh one. checkToken_
+   also enforces the 7-day expiry, so a copied token dies with its window. */
+var PUBLIC_ACTIONS = { login: 1, session: 1 };
+function requireAuth_(p) {
+  var t = checkToken_((p && p.auth) || '');
+  if (!t) return null;
+  if (!userStillActive_(t.user)) return null;
+  return t;
+}
 function app(action, p) {
   p = p || {}; action = String(action || '');
+  if (!PUBLIC_ACTIONS[action]) {
+    var tok = requireAuth_(p);
+    if (!tok) return { ok: false, error: 'login required' };
+    p.__tok = tok;   // handlers reuse the already-verified token instead of re-checking
+  }
   if (p.fresh && !__FRESH && freshAllowed_(action)) __FRESH = true;
   switch (action) {
     case 'home':          return getHome_();
@@ -233,6 +255,7 @@ function app(action, p) {
     case 'session':       return handleSession_(p);
     case 'mydeals':       return getMyDealsPayload_(p);
     case 'bootcamp':      return getBootcampPayload_(p);
+    case 'bootcampreview':return bootcampReview_(p);                  // admin token only (checked inside)
     default:              return { ok: false, error: 'unknown action: ' + action };
   }
 }
