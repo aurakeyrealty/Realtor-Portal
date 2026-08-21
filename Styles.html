@@ -70,12 +70,17 @@ body.detail .tbback{display:block}
 .kk{color:var(--mute);flex:none;min-width:5rem;font-size:var(--fs-md)}
 .vv{color:var(--ink2);min-width:0;word-break:break-word}
 .pill{display:inline-block;font-size:var(--fs-xs);font-weight:700;text-transform:uppercase;letter-spacing:.03em;padding:0.1875rem 0.5rem;border-radius:999px;background:var(--blue-soft);color:var(--blue);margin-bottom:0.375rem}
-.pill.focus{background:var(--ochre-soft);color:var(--ochre)}
+.pill.focus,.pill.ochre{background:var(--ochre-soft);color:var(--ochre)}
+.pill.rust{background:var(--rust-soft);color:var(--rust)}
+.pill.pine{background:var(--pine-soft);color:var(--pine)}
 .lnkrow{display:flex;flex-wrap:wrap;gap:0.5rem;margin-top:0.5rem}
 .lnk{display:inline-flex;align-items:center;gap:0.375rem;border:1px solid var(--line);border-radius:8px;padding:0.6875rem 0.875rem;font-size:var(--fs-md);font-weight:600;color:var(--blue);background:var(--card);text-decoration:none;min-height:2.75rem}
 .lnk:active{background:var(--blue-soft)}
 .sec-h{font-family:var(--f-disp);font-weight:600;font-size:var(--fs-md);color:var(--ink);margin:1.125rem 0.125rem 0.5625rem;text-transform:uppercase;letter-spacing:.04em;scroll-margin-top:4rem}
 .sec-h:first-child{margin-top:0.125rem}
+.mtg-h{display:flex;align-items:center;gap:0.5rem}
+.mtg-rank{flex:none;background:var(--blue);color:#fff;font-family:var(--f-mono);font-size:var(--fs-xs);font-weight:600;letter-spacing:0;padding:0.125rem 0.375rem;border-radius:3px;text-transform:none}
+.mtg-n{margin-left:auto;color:var(--mute);font-weight:400;font-size:var(--fs-xs);text-transform:none;letter-spacing:0}
 .chips{display:flex;flex-wrap:wrap;gap:0.5rem}
 .citychip{border:1px solid var(--line);background:var(--card);border-radius:999px;padding:0.75rem 1rem;font-size:var(--fs-md);font-weight:600;color:var(--ink);min-height:2.75rem}
 .citychip:active{border-color:var(--blue);color:var(--blue)}
@@ -97,6 +102,7 @@ a.rowitem{text-decoration:none;box-sizing:border-box}
 .fbar input,.fbar select{flex:1;min-width:0;padding:0.75rem;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink);font-family:inherit;font-size:max(16px,var(--fs-lg2))}
 .fbar input:focus,.fbar select:focus{outline:2px solid var(--blue);outline-offset:-1px}
 .gobtn{background:var(--ink);color:#fff;border:0;border-radius:8px;padding:0 1rem;font-weight:600;font-size:var(--fs-base)}
+.wide-btn{display:block;width:100%;padding:0.75rem;margin:0.25rem 0 0.75rem}
 .seg{display:flex;gap:0.5rem;margin-bottom:1rem}
 .seg button{flex:1;border:1px solid var(--line);background:var(--card);border-radius:8px;padding:0.75rem 0.5rem;font-size:var(--fs-md);font-weight:600;color:var(--ink2);min-height:2.75rem}
 .seg button.on{background:var(--blue);color:#fff;border-color:var(--blue)}
@@ -132,9 +138,9 @@ a.rowitem{text-decoration:none;box-sizing:border-box}
        and section headers still span the full rail. ---- */
 @media(min-width:44em){
   :root{--col:47.5rem}
-  #content,#slist,#alOut,#homeContacts,#lbRes,#fsOut,#wkRes,#ltbRes,#cnRec{display:grid;grid-template-columns:repeat(auto-fill,minmax(19rem,1fr));column-gap:0.75rem;align-items:start}
-  #content>*,#slist>*,#alOut>*,#homeContacts>*,#lbRes>*,#fsOut>*,#wkRes>*,#ltbRes>*,#cnRec>*{grid-column:1/-1}
-  #content>.card,#content>.skel,#slist>.card,#alOut>.card,#homeContacts>.card,#lbRes>.card,#lbRes>.skel,#fsOut>.card,#wkRes>.card,#wkRes>.skel,#ltbRes>.card,#cnRec>.card{grid-column:auto}
+  #content,#slist,#alOut,#homeContacts,#lbRes,#fsOut,#wkRes,#ltbRes,#cnRec,.cardgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(19rem,1fr));column-gap:0.75rem;align-items:start}
+  #content>*,#slist>*,#alOut>*,#homeContacts>*,#lbRes>*,#fsOut>*,#wkRes>*,#ltbRes>*,#cnRec>*,.cardgrid>*{grid-column:1/-1}
+  #content>.card,#content>.skel,#slist>.card,#alOut>.card,#homeContacts>.card,#lbRes>.card,#lbRes>.skel,#fsOut>.card,#wkRes>.card,#wkRes>.skel,#ltbRes>.card,#cnRec>.card,.cardgrid>.card{grid-column:auto}
   #content>.card.wide{grid-column:1/-1}   /* intro and summary cards span the rail */
   .login-card{grid-column:1/-1}
 }

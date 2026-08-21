@@ -81,7 +81,12 @@ function scoreTier(s){ var f=scoreNum(s); if(f>=7.6)return'high'; if(f>=6)return
 function scoreBand(f){ if(f>=7.6)return'High'; if(f>=6)return'Good'; if(f>=4.1)return'Fair'; if(f>=0)return'Low'; return''; }
 function scoreBadge(s){ var t=scoreTier(s),bd=scoreBand(scoreNum(s)); return '<span class="sb'+(t?' '+t:'')+'"><b>'+esc(s||'—')+'</b>'+(bd?'<i>'+bd+'</i>':'')+'</span>'; }
 function listTone(l){ if(l.exclusive) return ['var(--ochre-soft)','var(--ochre)']; var s=((l.status||'')+' '+(l.section||'')).toLowerCase(); if(s.indexOf('lease')>=0)return['var(--slate-soft)','var(--slate)']; if(s.indexOf('commercial')>=0)return['var(--blue-soft)','var(--blue)']; if(s.indexOf('sold')>=0)return['var(--rust-soft)','var(--rust)']; return['var(--pine-soft)','var(--pine)']; }
-function initials(n){ n=String(n||'').trim(); if(!n)return'?'; var p=n.split(/\s+/); return (p[0][0]+(p[1]?p[1][0]:'')).toUpperCase(); }
+/* skip bracketed nicknames and punctuation — "Pushpinder (Sid)" is P, not "P(" */
+function initials(n){
+  var p=String(n||'').split(/\s+/).map(function(w){ return w.replace(/[^A-Za-z]/g,''); }).filter(Boolean);
+  if(!p.length) return '?';
+  return (p[0].charAt(0)+(p[1]?p[1].charAt(0):'')).toUpperCase();
+}
 
 var TABS=[{v:'home',t:'Home'},{v:'cities',t:'Cities'},{v:'mydeals',t:'My Deals'},{v:'resources',t:'Resources'}];
 function buildTabs(){
@@ -228,7 +233,9 @@ function loadHome(){
         +'</div>';
     }).join(''); }
     if(groups.order.length){
-      h+='<div class="sec-h" id="sec-contacts">Contacts</div><div class="chips" id="homeCats"></div><div id="homeContacts" style="margin-top:12px"></div>';
+      h+='<div class="sec-h" id="sec-contacts">Contacts</div><div class="chips" id="homeCats"></div>'
+        +'<div style="margin-top:12px">'+filterBar('contacts','Filter by name, company or note')+'</div>'
+        +'<div id="homeContacts"></div>';
     }
     if(!h) h='<div class="empty">No home data yet.</div>';
     $('content').innerHTML=h;
@@ -240,7 +247,7 @@ function loadHome(){
       homeCat=groups.order[0];
       $('homeCats').innerHTML=groups.order.map(function(k){ return '<button class="citychip'+(k===homeCat?' on':'')+'" data-k="'+esc(k)+'">'+esc(groups.g[k].label)+' ('+groups.g[k].items.length+')</button>'; }).join('');
       $('homeCats').querySelectorAll('.citychip').forEach(function(b){ b.addEventListener('click',function(){ homeCat=b.dataset.k; $('homeCats').querySelectorAll('.citychip').forEach(function(x){x.classList.toggle('on',x.dataset.k===homeCat);}); paintHomeContacts(groups); }); });
-      paintHomeContacts(groups);
+      wireFilter('contacts',function(){ paintHomeContacts(groups); });
     }
   }).catch(fail);
 }
@@ -248,18 +255,66 @@ function homeGroups(contacts){
   var g={},order=[]; (contacts||[]).forEach(function(c){ var k=(c.category||'').trim(); if(!k)return; var lk=k.toLowerCase(); if(!g[lk]){g[lk]={label:k,items:[]};order.push(lk);} g[lk].items.push(c); });
   return {g:g,order:order};
 }
+function contactCard(c){
+  var sub=[c.title,c.company].filter(Boolean).join(' · ');
+  var note=(c.notes||'').trim(), tag=(c.tag||'').trim();
+  var meta='';
+  if(tag) meta+='<div class="ctag">'+esc(tag)+'</div>';
+  if(c.address) meta+=kv('Address',c.address);
+  if(note&&note!==tag) meta+=kv('Note',note);
+  var phones=[c.direct,c.office,c.phone].filter(Boolean).filter(function(p,i,a){return a.indexOf(p)===i;});
+  return '<div class="card" style="display:flex;gap:12px;align-items:flex-start"><span class="avatar" style="width:2.375rem;height:2.375rem;display:grid;place-items:center;font-family:var(--f-disp);font-weight:700;font-size:var(--fs-md);color:var(--blue);background:var(--blue-soft)">'+esc(initials(c.name||c.company))+'</span><div style="min-width:0;flex:1"><div class="card-t" style="margin:0">'+esc(c.name||c.company||'—')+'</div>'+(sub?'<div class="card-s">'+esc(sub)+'</div>':'')+meta+'<div class="lnkrow">'+phones.map(telBtn).join('')+mailBtn(c.email)+'</div></div></div>';
+}
+
+/* Mortgage contacts follow the web version's priority rather than sheet order:
+   bankers grouped by bank, ranked National Bank -> TD -> CIBC -> the rest
+   alphabetically, with brokers last. Every other category keeps sheet order. */
+var MTG_RANK=['1st','2nd','3rd','4th','5th'];
+function mtgPref(label){
+  var l=String(label||'').toLowerCase();
+  if(l.indexOf('national')>=0) return 0;
+  if(l.indexOf('td')>=0) return 1;
+  if(l.indexOf('cibc')>=0) return 2;
+  return 3;
+}
+function isMortgageCat(k){ return /mortgage/i.test(String(k||'')); }
+function mortgagePanel(items){
+  var bankers=items.filter(function(c){ return /bank/i.test(c.title||''); });
+  var brokers=items.filter(function(c){ return /broker/i.test(c.title||''); });
+  var rest=items.filter(function(c){ return bankers.indexOf(c)<0 && brokers.indexOf(c)<0; });
+  if(!bankers.length&&!brokers.length) return items.map(contactCard).join('');
+  var banks={}, order=[];
+  bankers.forEach(function(c){
+    var b=(c.company||'Other').trim()||'Other', lb=b.toLowerCase();
+    if(!banks[lb]){ banks[lb]={label:b,items:[]}; order.push(lb); }
+    banks[lb].items.push(c);
+  });
+  order.sort(function(a,b){ var d=mtgPref(a)-mtgPref(b); return d!==0?d:(a<b?-1:1); });
+  var notes=[], seenNote={};
+  items.forEach(function(c){ var n=(c.notes||'').trim(); if(n&&!seenNote[n]){ seenNote[n]=1; notes.push(n); } });
+  var h='';
+  if(notes.length) h+='<div class="card wide"><div class="card-s">'+esc(notes.join(' · '))+'</div></div>';
+  order.forEach(function(lb,i){
+    var bk=banks[lb];
+    h+='<div class="sec-h mtg-h"><span class="mtg-rank">'+MTG_RANK[i]+'</span>'+esc(bk.label)+' <span class="mtg-n">'+bk.items.length+(bk.items.length===1?' banker':' bankers')+'</span></div>';
+    h+=bk.items.map(contactCard).join('');
+  });
+  if(brokers.length){
+    h+='<div class="sec-h mtg-h">Mortgage brokers <span class="mtg-n">'+brokers.length+(brokers.length===1?' broker':' brokers')+'</span></div>';
+    h+=brokers.map(contactCard).join('');
+  }
+  if(rest.length){
+    h+='<div class="sec-h mtg-h">Other</div>'+rest.map(contactCard).join('');
+  }
+  return h;
+}
 function paintHomeContacts(groups){
-  var items=(groups.g[homeCat]||{items:[]}).items;
-  $('homeContacts').innerHTML=items.map(function(c){
-    var sub=[c.title,c.company].filter(Boolean).join(' · ');
-    var note=(c.notes||'').trim(), tag=(c.tag||'').trim();
-    var meta='';
-    if(tag) meta+='<div class="ctag">'+esc(tag)+'</div>';
-    if(c.address) meta+=kv('Address',c.address);
-    if(note&&note!==tag) meta+=kv('Note',note);
-    var phones=[c.direct,c.office,c.phone].filter(Boolean).filter(function(p,i,a){return a.indexOf(p)===i;});
-    return '<div class="card" style="display:flex;gap:12px;align-items:flex-start"><span class="avatar" style="width:2.375rem;height:2.375rem;display:grid;place-items:center;font-family:var(--f-disp);font-weight:700;font-size:var(--fs-md);color:var(--blue);background:var(--blue-soft)">'+esc(initials(c.name||c.company))+'</span><div style="min-width:0;flex:1"><div class="card-t" style="margin:0">'+esc(c.name||c.company||'—')+'</div>'+(sub?'<div class="card-s">'+esc(sub)+'</div>':'')+meta+'<div class="lnkrow">'+phones.map(telBtn).join('')+mailBtn(c.email)+'</div></div></div>';
-  }).join('')||'<div class="empty">No contacts in this group.</div>';
+  var g=groups.g[homeCat]||{items:[],label:''};
+  var q=pageQ('contacts');
+  var items=g.items.filter(function(c){ return qHit(q,c,['name','company','title','tag','notes','address','direct','office','email']); });
+  pageCount('contacts',items.length,g.items.length,'contact','contacts');
+  $('homeContacts').innerHTML=(items.length?(isMortgageCat(g.label||homeCat)?mortgagePanel(items):items.map(contactCard).join('')):'')
+    ||'<div class="empty">'+(q?'Nothing matches.':'No contacts in this group.')+'</div>';
 }
 
 var CITY_DATA=[], CITY_FOCUS={}, cityFocusOnly=false, cityQ='';
@@ -342,17 +397,65 @@ function renderAL(){
   }).join(''):'<div class="empty">No listings match that.</div>';
 }
 
-function loadBuilders(){ rowsPage('builders', function(r){
+/* ---- one filter bar, shared by every list page ----
+   Cities, Listings and Schools already worked this way; this is the same
+   pattern extracted so the remaining lists get it without repeating markup. */
+var PAGE_Q={};
+function filterBar(page,placeholder){
+  return '<div class="fbar"><input id="q_'+page+'" type="search" autocomplete="off" placeholder="'+esc(placeholder)+'" value="'+esc(PAGE_Q[page]||'')+'"></div>'
+        +'<div id="n_'+page+'" class="card-s" style="margin:0 2px 10px"></div>';
+}
+function wireFilter(page,paint){
+  var el=$('q_'+page);
+  if(el) el.addEventListener('input',function(){ PAGE_Q[page]=this.value; paint(); });
+  paint();
+}
+function pageQ(page){ return String(PAGE_Q[page]||'').trim().toLowerCase(); }
+function qHit(q,rec,keys){
+  if(!q) return true;
+  for(var i=0;i<keys.length;i++){ var v=rec[keys[i]]; if(v!=null&&String(v).toLowerCase().indexOf(q)>=0) return true; }
+  return false;
+}
+function pageCount(page,n,total,one,many){
+  var el=$('n_'+page); if(!el) return;
+  el.textContent=n+' '+(n===1?one:many)+(n!==total?' of '+total:'');
+}
+
+function loadBuilders(){ rowsPage('builders','Filter builders or projects',['name','project','rep','phone','email'],['builder','builders'], function(r){
   return '<div class="card"><div class="card-t">'+esc(r.name||'Builder')+'</div>'+(r.project?'<div class="card-s">'+esc(r.project)+'</div>':'')+kv('Rep',r.rep)+'<div class="lnkrow">'+telBtn(r.phone)+mailBtn(r.email)+linkBtn('Builder',r.broker_url)+'</div></div>';
 }); }
+var CONTRACTORS=[];
 function loadContractors(){ cachedCall('contractors').then(function(d){
-  var rows=(d&&d.rows)||[]; if(!rows.length){ $('content').innerHTML='<div class="empty">No contacts.</div>'; return; }
-  var groups={},order=[]; rows.forEach(function(r){ var c=r.category||'Other'; if(!groups[c]){groups[c]=[];order.push(c);} groups[c].push(r); });
-  $('content').innerHTML=stamp(d)+order.map(function(c){ return '<div class="sec-h">'+esc(c)+'</div>'+groups[c].map(function(r){
-    return '<div class="card"><div class="card-t">'+esc(r.name||'Contact')+'</div>'+(r.contact?'<div class="card-s">'+esc(r.contact)+'</div>':'')+kv('Area',r.area)+'<div class="lnkrow">'+telBtn(r.phone)+mailBtn(r.email)+'</div></div>';
-  }).join(''); }).join('');
+  CONTRACTORS=(d&&d.rows)||[]; if(!CONTRACTORS.length){ $('content').innerHTML='<div class="empty">No contacts.</div>'; return; }
+  $('content').innerHTML=stamp(d)+filterBar('contractors','Filter by trade, company or name')+'<div id="ctrOut" class="cardgrid"></div>';
+  wireFilter('contractors',paintContractors);
 }).catch(fail); }
-function rowsPage(action,cardFn){ cachedCall(action).then(function(d){ var rows=(d&&d.rows)||[]; $('content').innerHTML=stamp(d)+(rows.length?rows.map(cardFn).join(''):'<div class="empty">Nothing here yet.</div>'); }).catch(fail); }
+function paintContractors(){
+  var q=pageQ('contractors');
+  var rows=CONTRACTORS.filter(function(r){ return qHit(q,r,['name','category','contact','area','phone','email']); });
+  pageCount('contractors',rows.length,CONTRACTORS.length,'contact','contacts');
+  var groups={},order=[]; rows.forEach(function(r){ var c=r.category||'Other'; if(!groups[c]){groups[c]=[];order.push(c);} groups[c].push(r); });
+  $('ctrOut').innerHTML=rows.length?order.map(function(c){ return '<div class="sec-h">'+esc(c)+'</div>'+groups[c].map(function(r){
+    return '<div class="card"><div class="card-t">'+esc(r.name||'Contact')+'</div>'+(r.contact?'<div class="card-s">'+esc(r.contact)+'</div>':'')+kv('Area',r.area)+'<div class="lnkrow">'+telBtn(r.phone)+mailBtn(r.email)+'</div></div>';
+  }).join(''); }).join(''):'<div class="empty">Nothing matches.</div>';
+}
+var ROWS_PAGE={};
+function rowsPage(action,placeholder,keys,noun,cardFn){
+  cachedCall(action).then(function(d){
+    var rows=(d&&d.rows)||[];
+    if(!rows.length){ $('content').innerHTML=stamp(d)+'<div class="empty">Nothing here yet.</div>'; return; }
+    ROWS_PAGE[action]={rows:rows,keys:keys,noun:noun,cardFn:cardFn};
+    $('content').innerHTML=stamp(d)+filterBar(action,placeholder)+'<div id="out_'+action+'" class="cardgrid"></div>';
+    wireFilter(action,function(){ paintRowsPage(action); });
+  }).catch(fail);
+}
+function paintRowsPage(action){
+  var s=ROWS_PAGE[action]; if(!s) return;
+  var q=pageQ(action);
+  var rows=s.rows.filter(function(r){ return qHit(q,r,s.keys); });
+  pageCount(action,rows.length,s.rows.length,s.noun[0],s.noun[1]);
+  $('out_'+action).innerHTML=rows.length?rows.map(s.cardFn).join(''):'<div class="empty">Nothing matches.</div>';
+}
 
 var schoolQ='';
 function loadSchools(){
@@ -702,39 +805,77 @@ function drawLBMeetings(period){
   }).catch(fail);
 }
 
+var RESOURCES=[];
 function loadResources(){
   cachedCall('resources').then(function(d){
-    var cats=(d&&d.categories)||[];
-    if(!cats.length){ $('content').innerHTML='<div class="empty">No resources.</div>'; return; }
-    $('content').innerHTML=stamp(d)+cats.map(function(c){
-      return '<div class="sec-h">'+esc(c.category)+'</div>'+(c.items||[]).map(function(it){
-        return '<div class="card"><div class="card-t">'+esc(it.label||'Item')+'</div>'+(it.desc?'<div class="card-s">'+esc(it.desc)+'</div>':'')+'<div class="lnkrow">'+linkBtn(it.type||'Open',it.url)+(it.subs||[]).map(function(s){return linkBtn(s.name,s.url);}).join('')+'</div></div>';
-      }).join('');
-    }).join('');
+    RESOURCES=(d&&d.categories)||[];
+    if(!RESOURCES.length){ $('content').innerHTML='<div class="empty">No resources.</div>'; return; }
+    $('content').innerHTML=stamp(d)+filterBar('resources','Filter resources')+'<div id="resOut" class="cardgrid"></div>';
+    wireFilter('resources',paintResources);
   }).catch(fail);
 }
+function paintResources(){
+  var q=pageQ('resources'), total=0, shown=0, h='';
+  RESOURCES.forEach(function(c){
+    var items=(c.items||[]).filter(function(it){
+      total++;
+      var subHit=(it.subs||[]).some(function(s){ return qHit(q,s,['name','notes']); });
+      return qHit(q,it,['label','desc','type','notes'])||qHit(q,{category:c.category},['category'])||subHit;
+    });
+    shown+=items.length;
+    if(!items.length) return;
+    h+='<div class="sec-h">'+esc(c.category)+'</div>'+items.map(function(it){
+      return '<div class="card"><div class="card-t">'+esc(it.label||'Item')+'</div>'+(it.desc?'<div class="card-s">'+esc(it.desc)+'</div>':'')+'<div class="lnkrow">'+linkBtn(it.type||'Open',it.url)+(it.subs||[]).map(function(s){return linkBtn(s.name,s.url);}).join('')+'</div></div>';
+    }).join('');
+  });
+  pageCount('resources',shown,total,'resource','resources');
+  $('resOut').innerHTML=h||'<div class="empty">Nothing matches.</div>';
+}
 
+var WEBSITES=[];
 function loadWebsites(){
   cachedCall('websites').then(function(d){
-    var secs=(d&&d.sections)||[];
-    if(!secs.length){ $('content').innerHTML='<div class="empty">No websites.</div>'; return; }
-    $('content').innerHTML=stamp(d)+secs.map(function(s){
-      return '<div class="sec-h">'+esc(s.section)+'</div><div class="card">'+(s.items||[]).map(function(it){ return '<div class="kv"><a class="vv" href="'+esc(it.url)+'" target="_blank">'+esc(it.name||host(it.url))+'</a></div>'; }).join('')+'</div>';
-    }).join('');
+    WEBSITES=(d&&d.sections)||[];
+    if(!WEBSITES.length){ $('content').innerHTML='<div class="empty">No websites.</div>'; return; }
+    $('content').innerHTML=stamp(d)+filterBar('websites','Filter websites')+'<div id="webOut" class="cardgrid"></div>';
+    wireFilter('websites',paintWebsites);
   }).catch(fail);
 }
+function paintWebsites(){
+  var q=pageQ('websites'), total=0, shown=0, h='';
+  WEBSITES.forEach(function(s){
+    var items=(s.items||[]).filter(function(it){
+      total++;
+      return qHit(q,it,['name','url'])||qHit(q,{section:s.section},['section']);
+    });
+    shown+=items.length;
+    if(!items.length) return;
+    h+='<div class="sec-h">'+esc(s.section)+'</div><div class="card">'+items.map(function(it){ return '<div class="kv"><a class="vv" href="'+esc(it.url)+'" target="_blank">'+esc(it.name||host(it.url))+'</a></div>'; }).join('')+'</div>';
+  });
+  pageCount('websites',shown,total,'site','sites');
+  $('webOut').innerHTML=h||'<div class="empty">Nothing matches.</div>';
+}
 
+var FAQS=[];
 function loadFaqs(){
   cachedCall('faqs').then(function(d){
-    var rows=(d&&d.rows)||[];
-    if(!rows.length){ $('content').innerHTML='<div class="empty">No FAQs.</div>'; return; }
-    $('content').innerHTML=stamp(d)+rows.map(function(r){
-      return '<details class="card"><summary style="font-weight:600;color:var(--ink);cursor:pointer;list-style:none">'+esc(r.question||'Question')+'</summary><div style="font-size:var(--fs-md);color:var(--ink2);margin-top:8px;line-height:1.55">'+esc(r.answer||'')+(r.source?'<div class="lnkrow">'+linkBtn('Source',r.source)+'</div>':'')+'</div></details>';
-    }).join('');
+    FAQS=(d&&d.rows)||[];
+    if(!FAQS.length){ $('content').innerHTML='<div class="empty">No FAQs.</div>'; return; }
+    $('content').innerHTML=stamp(d)+filterBar('faqs','Search questions')+'<div id="faqOut" class="cardgrid"></div>';
+    wireFilter('faqs',paintFaqs);
   }).catch(fail);
 }
+function paintFaqs(){
+  var q=pageQ('faqs');
+  var rows=FAQS.filter(function(r){ return qHit(q,r,['question','answer','category']); });
+  pageCount('faqs',rows.length,FAQS.length,'question','questions');
+  $('faqOut').innerHTML=rows.length?rows.map(function(r){
+    /* a search only pays off if the match is visible, so open the matches */
+    return '<details class="card"'+(q?' open':'')+'><summary style="font-weight:600;color:var(--ink);cursor:pointer;list-style:none">'+esc(r.question||'Question')+'</summary><div style="font-size:var(--fs-md);color:var(--ink2);margin-top:8px;line-height:1.55">'+esc(r.answer||'')+(r.source?'<div class="lnkrow">'+linkBtn('Source',r.source)+'</div>':'')+'</div></details>';
+  }).join(''):'<div class="empty">Nothing matches.</div>';
+}
 
-function loadVacations(){ rowsPage('vacations', function(r){
+function loadVacations(){ rowsPage('vacations','Filter by name',['name','from','to','reachable'],['person','people'], function(r){
   return '<div class="card"><div class="card-t">'+esc(r.name||'—')+'</div>'+kv('From',r.from)+kv('To',r.to)+kv('Reachable',r.reachable)+'</div>';
 }); }
 
@@ -757,14 +898,131 @@ function loadMyDeals(){
   if(!TOKEN){ $('content').innerHTML=loginForm('mydeals'); return; }
   freshOnly(call('mydeals',{auth:TOKEN})).then(function(d){
     if(!d||d.ok===false){ if(/login|token|auth/i.test((d&&d.error)||'')){ TOKEN=null; $('content').innerHTML=loginForm('mydeals'); return; } $('content').innerHTML='<div class="err">'+esc((d&&d.error)||'Could not load.')+'</div>'; return; }
-    var deals=d.deals||d.rows||[], fu=d.followups||{current:[],future:[]};
-    var current=fu.current||[], future=fu.future||[], nfu=current.length+future.length;
-    var h='<div class="card"><div class="card-t">Hi '+esc(WHO||'')+'</div><div class="card-s">'+deals.length+' deals · '+nfu+' follow-ups</div><div class="lnkrow"><button class="lnk" onclick="signOut()">Sign out</button></div></div>';
-    if(current.length){ h+='<div class="sec-h">Follow up now</div>'+current.slice(0,25).map(function(f){ return '<div class="card"><div class="card-t">'+esc(f.client||'—')+'</div>'+kv('Property',f.property)+kv('Closing',f.closing)+(f.days!=null?kv('Days',f.days):'')+kv('Last contact',f.lastContact)+'</div>'; }).join(''); }
-    if(future.length){ h+='<div class="sec-h">Scheduled</div>'+future.slice(0,25).map(function(f){ return '<div class="card"><div class="card-t">'+esc(f.client||'—')+'</div>'+kv('Property',f.property)+kv('Next',f.nextTxt||f.nextISO)+'</div>'; }).join(''); }
-    h+='<div class="sec-h">Deals</div>'+(deals.length?deals.map(function(x){ return '<div class="card"><div class="card-t">'+esc(x.property||x.client||'Deal')+'</div>'+kv('Status',x.status)+kv('Client',x.client)+kv('Closing',x.closing)+kv('Price',x.price)+kv('Commission',x.commission)+'</div>'; }).join(''):'<div class="empty">No deals yet.</div>');
-    $('content').innerHTML=h;
+    renderMyDeals(d);
   }).catch(fail);
+}
+/* ---- My Deals: filters over the deal list, plus the leads / meetings /
+   tickets the server has always sent and the app never rendered ---- */
+var MD=null, mdStatus='All', mdMonth='All', mdTab='deals';
+var MD_MONTHS=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+function mdNorm(s){ return String(s||'').trim().toLowerCase(); }
+function mdMonthOf(x){
+  var iso=String(x.closingISO||''); var m=/^(\d{4})-(\d{2})/.exec(iso);
+  if(m) return +m[2];
+  var t=String(x.closing||''); var mm=/(\d{1,2})[\/-](\d{1,2})[\/-](\d{2,4})/.exec(t);
+  if(mm) return +mm[1];
+  for(var i=0;i<12;i++) if(new RegExp('\\b'+MD_MONTHS[i],'i').test(t)) return i+1;
+  return 0;
+}
+function renderMyDeals(d){
+  MD=d||{};
+  var deals=MD.deals||MD.rows||[], fu=MD.followups||{current:[],future:[]};
+  var nfu=(fu.current||[]).length+(fu.future||[]).length;
+  var counts={deals:deals.length, followups:nfu, leads:(MD.leads||[]).length, meetings:(MD.meetings||[]).length, tickets:(MD.tickets||[]).length};
+  var tabs=[['deals','Deals'],['followups','Follow-ups'],['leads','Leads'],['meetings','Meetings'],['tickets','Tickets']]
+    .filter(function(t){ return t[0]==='deals'||t[0]==='followups'||counts[t[0]]; });
+  if(!tabs.some(function(t){return t[0]===mdTab;})) mdTab='deals';
+  $('content').innerHTML=
+     '<div class="card"><div class="card-t">Hi '+esc(WHO||'')+'</div><div class="card-s">'+counts.deals+' deals · '+nfu+' follow-ups</div><div class="lnkrow"><button class="lnk" onclick="signOut()">Sign out</button></div></div>'
+    +'<div class="chips" id="mdTabs" style="margin-bottom:12px">'+tabs.map(function(t){
+        return '<button class="citychip'+(t[0]===mdTab?' on':'')+'" data-t="'+t[0]+'">'+t[1]+' ('+counts[t[0]]+')</button>';
+      }).join('')+'</div>'
+    +'<div id="mdBody" class="cardgrid"></div>';
+  $('mdTabs').querySelectorAll('.citychip').forEach(function(b){ b.addEventListener('click',function(){
+    mdTab=b.dataset.t;
+    $('mdTabs').querySelectorAll('.citychip').forEach(function(x){x.classList.toggle('on',x===b);});
+    paintMyDeals();
+  }); });
+  paintMyDeals();
+}
+function paintMyDeals(){
+  if(mdTab==='deals') return paintMDDeals();
+  if(mdTab==='followups') return paintMDFollowups();
+  if(mdTab==='leads') return paintMDList(MD.leads||[],['date','realtor','client','stage','source','notes'],'client','No leads.');
+  if(mdTab==='meetings') return paintMDMeetings();
+  if(mdTab==='tickets') return paintMDList(MD.tickets||[],null,null,'No tickets.');
+}
+function paintMDDeals(){
+  var deals=MD.deals||MD.rows||[];
+  var statuses=[]; var seen={};
+  deals.forEach(function(x){ var s=String(x.status||'').trim(); if(s&&!seen[mdNorm(s)]){ seen[mdNorm(s)]=1; statuses.push(s); } });
+  var months=[]; var seenM={};
+  deals.forEach(function(x){ var m=mdMonthOf(x); if(m&&!seenM[m]){ seenM[m]=1; months.push(m); } });
+  months.sort(function(a,b){return a-b;});
+  if(statuses.indexOf(mdStatus)<0&&mdStatus!=='All') mdStatus='All';
+  $('mdBody').innerHTML=
+     '<div class="fbar">'
+    +'<select id="mdStatus" aria-label="Filter by status"><option value="All"'+(mdStatus==='All'?' selected':'')+'>All statuses</option>'
+      +statuses.map(function(s){ return '<option value="'+esc(s)+'"'+(s===mdStatus?' selected':'')+'>'+esc(s)+'</option>'; }).join('')+'</select>'
+    +(months.length>1?'<select id="mdMonth" aria-label="Filter by closing month"><option value="All"'+(mdMonth==='All'?' selected':'')+'>All months</option>'
+      +months.map(function(m){ return '<option value="'+m+'"'+(String(m)===String(mdMonth)?' selected':'')+'>'+MD_MONTHS[m-1]+'</option>'; }).join('')+'</select>':'')
+    +'</div>'
+    +'<div id="mdCount" class="card-s" style="margin:0 2px 10px"></div><div id="mdRows" class="cardgrid"></div>';
+  $('mdStatus').addEventListener('change',function(){ mdStatus=this.value; paintMDRows(); });
+  if($('mdMonth')) $('mdMonth').addEventListener('change',function(){ mdMonth=this.value; paintMDRows(); });
+  paintMDRows();
+}
+function paintMDRows(){
+  var deals=MD.deals||MD.rows||[];
+  var rows=deals.filter(function(x){
+    if(mdStatus!=='All'&&mdNorm(x.status)!==mdNorm(mdStatus)) return false;
+    if(mdMonth!=='All'&&String(mdMonthOf(x))!==String(mdMonth)) return false;
+    return true;
+  });
+  $('mdCount').textContent=rows.length+(rows.length===1?' deal':' deals')+(rows.length!==deals.length?' of '+deals.length:'');
+  $('mdRows').innerHTML=rows.length?rows.map(function(x){
+    return '<div class="card"><div class="card-t">'+esc(x.property||x.client||'Deal')+'</div>'+kv('Status',x.status)+kv('Client',x.client)+kv('Closing',x.closing)+kv('Price',x.price)+kv('Commission',x.commission)+'</div>';
+  }).join(''):'<div class="empty">No deals match these filters.</div>';
+}
+/* the old page sliced follow-ups at 25 with no sign anything was cut, while
+   the header counted them all — show everything, behind a "show the rest" */
+var MD_FU_STEP=25, mdFuShown={current:MD_FU_STEP,future:MD_FU_STEP};
+function paintMDFollowups(){
+  var fu=MD.followups||{current:[],future:[]};
+  var blocks=[['current','Follow up now',function(f){ return kv('Property',f.property)+kv('Closing',f.closing)+(f.days!=null?kv('Days',f.days):'')+kv('Last contact',f.lastContact); }],
+              ['future','Scheduled',function(f){ return kv('Property',f.property)+kv('Next',f.nextTxt||f.nextISO); }]];
+  var h='';
+  blocks.forEach(function(b){
+    var list=fu[b[0]]||[]; if(!list.length) return;
+    var shown=Math.min(mdFuShown[b[0]],list.length);
+    h+='<div class="sec-h">'+b[1]+' <span class="mtg-n">'+(shown<list.length?shown+' of '+list.length:list.length)+'</span></div>';
+    h+=list.slice(0,shown).map(function(f){ return '<div class="card"><div class="card-t">'+esc(f.client||'—')+'</div>'+b[2](f)+'</div>'; }).join('');
+    if(shown<list.length) h+='<button class="gobtn wide-btn" data-more="'+b[0]+'">Show '+Math.min(MD_FU_STEP,list.length-shown)+' more</button>';
+  });
+  $('mdBody').innerHTML=h||'<div class="empty">No follow-ups.</div>';
+  $('mdBody').querySelectorAll('[data-more]').forEach(function(b){ b.addEventListener('click',function(){ mdFuShown[b.dataset.more]+=MD_FU_STEP; paintMDFollowups(); }); });
+}
+function paintMDMeetings(){
+  var rows=MD.meetings||[];
+  if(!rows.length){ $('mdBody').innerHTML='<div class="empty">No meetings.</div>'; return; }
+  function mtgTone(s){
+    s=mdNorm(s);
+    if(/cancel|no.?show/.test(s)) return 'rust';
+    if(/upcoming|scheduled|pending/.test(s)) return 'ochre';
+    if(/complete|held|done|attended/.test(s)) return 'pine';
+    return '';
+  }
+  $('mdBody').innerHTML=rows.map(function(m){
+    var st=String(m.status||m.outcome||'').trim();
+    var cls=mtgTone(st);
+    return '<div class="card"><div class="card-t">'+esc(m.lead||m.client||'Meeting')+'</div>'
+      +(st?'<span class="pill '+cls+'">'+esc(st)+'</span>':'')
+      +kv('Date',[m.date,m.time].filter(Boolean).join(' · '))+kv('Type',m.type)+kv('Outcome',m.outcome)+kv('Source',m.source)
+      +(m.fub?'<div class="lnkrow">'+linkBtn('Open in FUB',m.fub)+'</div>':'')+'</div>';
+  }).join('');
+}
+function paintMDList(rows,order,titleKey,empty){
+  if(!rows.length){ $('mdBody').innerHTML='<div class="empty">'+esc(empty)+'</div>'; return; }
+  $('mdBody').innerHTML=rows.map(function(r){
+    var keys=order||Object.keys(r);
+    /* whichever key supplies the heading must not repeat as a row beneath it */
+    var usedKey=(titleKey&&r[titleKey])?titleKey:keys[0];
+    var t=r[usedKey]||'—';
+    return '<div class="card"><div class="card-t">'+esc(t)+'</div>'+keys.map(function(k){
+      if(k===usedKey||k==='fub') return '';
+      return kv(k.charAt(0).toUpperCase()+k.slice(1),r[k]);
+    }).join('')+(r.fub?'<div class="lnkrow">'+linkBtn('Open in FUB',r.fub)+'</div>':'')+'</div>';
+  }).join('');
 }
 function loadBootcamp(){
   if(!TOKEN){ $('content').innerHTML=loginForm('onboarding'); return; }
