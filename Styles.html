@@ -51,6 +51,7 @@ body.detail .tbback{display:block}
 .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:1rem;margin-bottom:0.75rem}
 .card-t{font-family:var(--f-disp);font-weight:600;font-size:var(--fs-lg2);color:var(--ink);margin:0 0 0.25rem}
 .card-s{font-size:var(--fs-md);color:var(--mute)}
+.ctag{display:inline-block;margin-top:0.375rem;padding:0.125rem 0.5rem;border-radius:3px;background:var(--ochre-soft);color:var(--ochre);font-size:var(--fs-xs);font-weight:600;line-height:1.5}
 .kv{display:flex;gap:0.5rem;font-size:var(--fs-md);padding:0.25rem 0}
 .kk{color:var(--mute);flex:none;min-width:5rem;font-size:var(--fs-md)}
 .vv{color:var(--ink2);min-width:0;word-break:break-word}
@@ -67,6 +68,7 @@ body.detail .tbback{display:block}
 .rowlist{background:var(--card);border:1px solid var(--line);border-radius:12px;overflow:hidden;margin-bottom:0.75rem}
 .rowitem{display:flex;align-items:center;gap:0.75rem;width:100%;background:none;border:0;border-bottom:1px solid var(--line2);padding:0.8125rem 1rem;font-size:var(--fs-base);font-weight:600;color:var(--ink);text-align:left;cursor:pointer;min-height:3.25rem}
 .rowitem:last-child{border-bottom:0}
+a.rowitem{text-decoration:none;box-sizing:border-box}
 .rowitem:active{background:var(--blue-soft)}
 .rmeta{margin-left:auto;display:flex;align-items:center;gap:0.625rem;color:var(--mute);font-weight:400;font-size:var(--fs-md);flex:none}
 .tagchip{display:inline-block;border:1px solid var(--line2);background:var(--paper);border-radius:999px;padding:0.375rem 0.75rem;font-size:var(--fs-md);color:var(--ink2)}
@@ -78,8 +80,8 @@ body.detail .tbback{display:block}
 .sb.low b{background:var(--rust-soft);color:var(--rust)}
 .sb i{font-style:normal;font-size:var(--fs-xs);color:var(--mute);text-transform:uppercase;letter-spacing:.05em}
 .fbar{display:flex;gap:0.5rem;margin-bottom:1rem}
-.fbar input{flex:1;padding:0.75rem;border:1px solid var(--line);border-radius:8px;background:var(--card)}
-.fbar input:focus{outline:2px solid var(--blue);outline-offset:-1px}
+.fbar input,.fbar select{flex:1;min-width:0;padding:0.75rem;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink);font-family:inherit;font-size:max(16px,var(--fs-lg2))}
+.fbar input:focus,.fbar select:focus{outline:2px solid var(--blue);outline-offset:-1px}
 .gobtn{background:var(--ink);color:#fff;border:0;border-radius:8px;padding:0 1rem;font-weight:600;font-size:var(--fs-base)}
 .seg{display:flex;gap:0.5rem;margin-bottom:1rem}
 .seg button{flex:1;border:1px solid var(--line);background:var(--card);border-radius:8px;padding:0.75rem 0.5rem;font-size:var(--fs-md);font-weight:600;color:var(--ink2);min-height:2.75rem}
@@ -116,9 +118,9 @@ body.detail .tbback{display:block}
        and section headers still span the full rail. ---- */
 @media(min-width:44em){
   :root{--col:47.5rem}
-  #content,#slist,#alOut,#homeContacts,#lbRes,#fsOut,#wkRes,#ltbRes{display:grid;grid-template-columns:repeat(auto-fill,minmax(19rem,1fr));column-gap:0.75rem;align-items:start}
-  #content>*,#slist>*,#alOut>*,#homeContacts>*,#lbRes>*,#fsOut>*,#wkRes>*,#ltbRes>*{grid-column:1/-1}
-  #content>.card,#content>.skel,#slist>.card,#alOut>.card,#homeContacts>.card,#lbRes>.card,#lbRes>.skel,#fsOut>.card,#wkRes>.card,#wkRes>.skel,#ltbRes>.card{grid-column:auto}
+  #content,#slist,#alOut,#homeContacts,#lbRes,#fsOut,#wkRes,#ltbRes,#cnRec{display:grid;grid-template-columns:repeat(auto-fill,minmax(19rem,1fr));column-gap:0.75rem;align-items:start}
+  #content>*,#slist>*,#alOut>*,#homeContacts>*,#lbRes>*,#fsOut>*,#wkRes>*,#ltbRes>*,#cnRec>*{grid-column:1/-1}
+  #content>.card,#content>.skel,#slist>.card,#alOut>.card,#homeContacts>.card,#lbRes>.card,#lbRes>.skel,#fsOut>.card,#wkRes>.card,#wkRes>.skel,#ltbRes>.card,#cnRec>.card{grid-column:auto}
   #content>.card.wide{grid-column:1/-1}   /* intro and summary cards span the rail */
   .login-card{grid-column:1/-1}
 }

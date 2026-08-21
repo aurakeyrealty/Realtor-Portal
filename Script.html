@@ -153,7 +153,13 @@ function fail(e){ if(e===STALE_ERR) return; $('content').innerHTML='<div class="
 function kv(k,v){ if(v==null||v===''||typeof v==='object')return''; if(isUrl(v))return '<div class="kv"><span class="kk">'+esc(k)+'</span><a class="vv" href="'+esc(v)+'" target="_blank">'+esc(host(v))+'</a></div>'; return '<div class="kv"><span class="kk">'+esc(k)+'</span><span class="vv">'+esc(v)+'</span></div>'; }
 function linkBtn(label,url){ return url?'<a class="lnk" href="'+esc(url)+'" target="_blank">'+esc(label)+'</a>':''; }
 function telBtn(p){ p=String(p||'').trim(); return p?'<a class="lnk" href="tel:'+esc(p.replace(/[^0-9+]/g,''))+'">Call '+esc(p)+'</a>':''; }
-function mailBtn(e){ e=String(e||'').trim(); return e?'<a class="lnk" href="mailto:'+esc(e)+'">Email</a>':''; }
+/* a sheet cell can hold several addresses ("a@x.com, b@y.com"); a raw comma in
+   a mailto is malformed, so link each address on its own */
+function mailAddrs(e){ return String(e||'').split(/[,;]+/).map(function(s){return s.trim();}).filter(Boolean); }
+function mailBtn(e){
+  var a=mailAddrs(e); if(!a.length) return '';
+  return a.map(function(addr,i){ return '<a class="lnk" href="mailto:'+esc(encodeURIComponent(addr).replace(/%40/g,'@'))+'">'+(a.length>1?'Email '+(i+1):'Email')+'</a>'; }).join('');
+}
 
 var homeCat=null, HOME=null;
 function loadHome(){
@@ -197,7 +203,13 @@ function paintHomeContacts(groups){
   var items=(groups.g[homeCat]||{items:[]}).items;
   $('homeContacts').innerHTML=items.map(function(c){
     var sub=[c.title,c.company].filter(Boolean).join(' · ');
-    return '<div class="card" style="display:flex;gap:12px;align-items:flex-start"><span class="avatar" style="width:2.375rem;height:2.375rem;display:grid;place-items:center;font-family:var(--f-disp);font-weight:700;font-size:var(--fs-md);color:var(--blue);background:var(--blue-soft)">'+esc(initials(c.name||c.company))+'</span><div style="min-width:0;flex:1"><div class="card-t" style="margin:0">'+esc(c.name||c.company||'—')+'</div>'+(sub?'<div class="card-s">'+esc(sub)+'</div>':'')+'<div class="lnkrow">'+telBtn(c.direct||c.office||c.phone)+mailBtn(c.email)+'</div></div></div>';
+    var note=(c.notes||'').trim(), tag=(c.tag||'').trim();
+    var meta='';
+    if(tag) meta+='<div class="ctag">'+esc(tag)+'</div>';
+    if(c.address) meta+=kv('Address',c.address);
+    if(note&&note!==tag) meta+=kv('Note',note);
+    var phones=[c.direct,c.office,c.phone].filter(Boolean).filter(function(p,i,a){return a.indexOf(p)===i;});
+    return '<div class="card" style="display:flex;gap:12px;align-items:flex-start"><span class="avatar" style="width:2.375rem;height:2.375rem;display:grid;place-items:center;font-family:var(--f-disp);font-weight:700;font-size:var(--fs-md);color:var(--blue);background:var(--blue-soft)">'+esc(initials(c.name||c.company))+'</span><div style="min-width:0;flex:1"><div class="card-t" style="margin:0">'+esc(c.name||c.company||'—')+'</div>'+(sub?'<div class="card-s">'+esc(sub)+'</div>':'')+meta+'<div class="lnkrow">'+phones.map(telBtn).join('')+mailBtn(c.email)+'</div></div></div>';
   }).join('')||'<div class="empty">No contacts in this group.</div>';
 }
 
@@ -337,19 +349,46 @@ function genCard(o){
 
 var fsSel='', fsSug=[];
 function loadFindSchool(){
-  call('fsboards').then(function(d){
+  // the address lookup covers the four boards we have an API for; the curated
+  // region list covers everywhere else (Toronto, Waterloo, …) — show both
+  Promise.all([call('fsboards'),cachedCall('schoolfinder').catch(function(){return null;})]).then(function(r){
+    var d=r[0], sf=r[1];
     var boards=(d&&d.boards)||[];
     $('content').innerHTML='<div class="card wide"><div class="card-s">Pick a board, type the address, and see the assigned schools with their rankings.</div></div>'
       +'<div class="chips" id="fsBoards" style="margin-bottom:12px"></div>'
       +'<div class="fbar"><input id="fsAddr" placeholder="12 Queen St, Brampton" autocomplete="off"><button class="gobtn" onclick="fsGo()">Search</button></div>'
       +'<div id="fsSug" class="card" style="display:none;padding:6px 0"></div>'
-      +'<div id="fsHint" style="font-size:var(--fs-sm);color:var(--mute);margin:2px 2px 12px"></div><div id="fsOut"></div>';
+      +'<div id="fsHint" style="font-size:var(--fs-sm);color:var(--mute);margin:2px 2px 12px"></div><div id="fsOut"></div>'
+      +'<div id="fsLinks"></div>';
     $('fsBoards').innerHTML=boards.map(function(b){ return '<button class="citychip" data-id="'+esc(b.id)+'" data-neednum="'+(b.needsNumber?1:0)+'">'+esc(b.name)+'</button>'; }).join('');
     $('fsBoards').querySelectorAll('.citychip').forEach(function(b){ b.addEventListener('click',function(){ fsSel=b.dataset.id; $('fsBoards').querySelectorAll('.citychip').forEach(function(x){x.classList.toggle('on',x.dataset.id===fsSel);}); }); });
     if(boards[0]){ fsSel=boards[0].id; $('fsBoards').querySelectorAll('.citychip')[0].classList.add('on'); }
     var t; $('fsAddr').addEventListener('input',function(){ clearTimeout(t); var v=this.value; t=setTimeout(function(){fsSuggest(v);},220); });
     $('fsAddr').addEventListener('keydown',function(e){ if(e.key==='Enter'){e.preventDefault();fsGo();} });
+    paintBoardLinks(boards, sf);
   }).catch(fail);
+}
+function paintBoardLinks(boards,sf){
+  var byUrl={}, byName={}, links=[];
+  // "Peel" from the sheet and "Peel Region" from the board table are the same
+  // place with different URLs — match on the region word, not the link
+  function nameKey(s){ return String(s||'').toLowerCase().replace(/\b(region|district|county|board|of)\b/g,'').replace(/[^a-z]+/g,''); }
+  function add(name,url){
+    url=String(url||'').trim(); name=String(name||'').trim();
+    if(!/^https?:\/\//i.test(url)||!name) return;
+    var uk=url.toLowerCase(), nk=nameKey(name);
+    if(byUrl[uk]||(nk&&byName[nk])) return;
+    byUrl[uk]=1; if(nk) byName[nk]=1;
+    links.push({name:name,url:url});
+  }
+  (sf&&sf.rows||[]).forEach(function(x){ add(x.region,x.url); });        // the sheet is admin-curated, so it wins
+  (boards||[]).forEach(function(b){ add(b.name,b.locator||b.url); });   // locator was fetched and dropped before
+  if(!links.length){ $('fsLinks').innerHTML=''; return; }
+  $('fsLinks').innerHTML='<div class="sec-h">Official board finders</div>'
+    +'<div class="card wide"><div class="card-s">For a region we can’t look up directly — Toronto, Waterloo and the rest — open the board’s own tool and search the address there.</div></div>'
+    +'<div class="rowlist">'+links.map(function(l){
+        return '<a class="rowitem" href="'+esc(l.url)+'" target="_blank" rel="noopener">'+esc(l.name)+'<span class="rmeta">'+ico('chev',15)+'</span></a>';
+      }).join('')+'</div>';
 }
 function fsSuggest(v){
   if(!fsSel||(v||'').trim().length<3){ $('fsSug').style.display='none'; return; }
@@ -492,25 +531,84 @@ function loadGuide(){
   }).catch(fail);
 }
 
+var CN=null, cnDate=null;
+function cnPresentCount(iso){ var a=(CN.attendance||{})[iso]||{}; return (CN.realtors||[]).filter(function(n){return a[n];}).length; }
+function cnNiceDate(iso){
+  var m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso||'')); if(!m) return String(iso||'—');
+  var dt=new Date(+m[1],+m[2]-1,+m[3]);
+  if(isNaN(dt.getTime())) return String(iso);
+  return dt.toLocaleDateString('en-CA',{weekday:'short',month:'short',day:'numeric'});
+}
 function loadCallnight(){
   cachedCall('callnight').then(function(d){
     if(!d||d.ok===false){ $('content').innerHTML='<div class="err">'+esc((d&&d.error)||'No call night data.')+'</div>'; return; }
-    var dates=(d.dates||[]).slice(0,1), realtors=d.realtors||[], att=d.attendance||{};
-    var latest=dates[0];
-    var h=stamp(d)+'<div class="card wide"><div class="card-t">Latest: '+esc(latest||'—')+'</div><div class="card-s">'+realtors.length+' realtors tracked</div></div>';
-    if(latest){ var present=realtors.filter(function(n){return att[latest]&&att[latest][n];}); h+='<div class="sec-h">Present ('+present.length+')</div><div class="chips">'+present.map(function(n){return '<span class="citychip">'+esc(n)+'</span>';}).join('')+'</div>'; }
-    $('content').innerHTML=h;
+    CN=d;
+    var dates=d.dates||[], realtors=d.realtors||[];
+    if(!dates.length||!realtors.length){ $('content').innerHTML=stamp(d)+'<div class="empty">No attendance recorded yet.</div>'; return; }
+    // default to the newest date that actually has anyone marked, so an
+    // unmarked column never renders an empty page
+    cnDate=null;
+    for(var i=0;i<dates.length&&!cnDate;i++) if(cnPresentCount(dates[i])>0) cnDate=dates[i];
+    if(!cnDate) cnDate=dates[0];
+    $('content').innerHTML=stamp(d)
+      +'<div class="card wide"><div class="card-t">'+realtors.length+' realtors tracked</div><div class="card-s">'+dates.length+(dates.length===1?' call night recorded':' call nights recorded')+'</div></div>'
+      +'<div class="fbar"><select id="cnSel" aria-label="Call night date">'+dates.map(function(iso){
+          var n=cnPresentCount(iso);
+          return '<option value="'+esc(iso)+'"'+(iso===cnDate?' selected':'')+'>'+esc(cnNiceDate(iso))+' — '+n+'/'+realtors.length+' present'+(n?'':' (not marked yet)')+'</option>';
+        }).join('')+'</select></div>'
+      +'<div id="cnOut"></div>'
+      +'<div class="sec-h">Attendance record</div><div id="cnRec"></div>';
+    $('cnSel').addEventListener('change',function(){ cnDate=this.value; paintCallnight(); });
+    paintCallnight();
+    paintCallnightRecord();
   }).catch(fail);
 }
+function paintCallnight(){
+  var realtors=CN.realtors||[], att=(CN.attendance||{})[cnDate]||{};
+  var present=realtors.filter(function(n){return att[n];}), absent=realtors.filter(function(n){return !att[n];});
+  var h='';
+  if(!present.length){
+    h+='<div class="warn" style="background:var(--ochre-soft);border-color:var(--ochre);color:var(--ochre)">Nobody is marked present for '+esc(cnNiceDate(cnDate))+' yet — the sheet column is still blank.</div>';
+  }
+  h+='<div class="sec-h">Present ('+present.length+')</div>'
+    +(present.length?'<div class="chips">'+present.map(function(n){return '<span class="citychip on">'+esc(n)+'</span>';}).join('')+'</div>':'<div class="empty">Nobody marked present.</div>')
+    +'<div class="sec-h">Absent ('+absent.length+')</div>'
+    +(absent.length?'<div class="chips">'+absent.map(function(n){return '<span class="citychip">'+esc(n)+'</span>';}).join('')+'</div>':'<div class="empty">Everybody attended.</div>');
+  $('cnOut').innerHTML=h;
+}
+function paintCallnightRecord(){
+  var realtors=CN.realtors||[], dates=CN.dates||[], att=CN.attendance||{};
+  var rows=realtors.map(function(n){
+    var hits=dates.filter(function(iso){ return att[iso]&&att[iso][n]; });
+    return {name:n, hits:hits.length};
+  }).sort(function(a,b){ return b.hits-a.hits || (a.name<b.name?-1:1); });
+  $('cnRec').innerHTML=rows.map(function(r){
+    var pct=dates.length?Math.round(r.hits/dates.length*100):0;
+    var tone=pct>=67?'var(--pine)':(pct>=34?'var(--ochre)':'var(--rust)');
+    return '<div class="card"><div style="display:flex;align-items:baseline;gap:10px">'
+      +'<div class="card-t" style="margin:0;flex:1;min-width:0">'+esc(r.name)+'</div>'
+      +'<div style="font-family:var(--f-disp);font-weight:700;font-size:var(--fs-base);color:'+tone+'">'+r.hits+'<span style="color:var(--mute);font-weight:400"> / '+dates.length+'</span></div></div>'
+      +'<div style="height:4px;border-radius:2px;background:var(--line2);margin-top:8px;overflow:hidden"><div style="height:100%;width:'+pct+'%;background:'+tone+'"></div></div>'
+      +'</div>';
+  }).join('');
+}
 
+var lbPeriod='month', lbMetric='talk', LB_SEQ=0;
 function loadLeaderboard(){
-  $('content').innerHTML='<div class="seg"><button class="on" data-p="month">This month</button><button data-p="last">Last month</button></div><div id="lbRes">'+skel(3)+'</div>';
-  $('content').querySelectorAll('.seg button').forEach(function(b){ b.addEventListener('click',function(){ $('content').querySelectorAll('.seg button').forEach(function(x){x.classList.remove('on');}); b.classList.add('on'); drawLB(b.dataset.p); }); });
-  drawLB('month');
+  $('content').innerHTML=
+     '<div class="seg" id="lbMetric"><button class="'+(lbMetric==='talk'?'on':'')+'" data-m="talk">Talk time</button><button class="'+(lbMetric==='meetings'?'on':'')+'" data-m="meetings">Meetings</button></div>'
+    +'<div class="seg" id="lbPeriod" style="margin-top:8px"><button class="'+(lbPeriod==='month'?'on':'')+'" data-p="month">This month</button><button class="'+(lbPeriod==='last'?'on':'')+'" data-p="last">Last month</button></div>'
+    +'<div id="lbRes" style="margin-top:12px">'+skel(3)+'</div>';
+  $('lbMetric').querySelectorAll('button').forEach(function(b){ b.addEventListener('click',function(){ if(lbMetric===b.dataset.m) return; lbMetric=b.dataset.m; $('lbMetric').querySelectorAll('button').forEach(function(x){x.classList.toggle('on',x===b);}); drawLB(lbPeriod); }); });
+  $('lbPeriod').querySelectorAll('button').forEach(function(b){ b.addEventListener('click',function(){ if(lbPeriod===b.dataset.p) return; lbPeriod=b.dataset.p; $('lbPeriod').querySelectorAll('button').forEach(function(x){x.classList.toggle('on',x===b);}); drawLB(lbPeriod); }); });
+  drawLB(lbPeriod);
 }
 function drawLB(period){
+  if(lbMetric==='meetings') return drawLBMeetings(period);
+  var seq=++LB_SEQ;
   $('lbRes').innerHTML=skel(3);
   cachedCall('leaderboard',{period:period}).then(function(d){
+    if(seq!==LB_SEQ) return;                       // a newer toggle won
     if(!d||d.ok===false){ $('lbRes').innerHTML='<div class="empty">'+esc((d&&d.error)||'No data.')+'</div>'; return; }
     var rows=d.agents||d.rows||d.leaders||[];
     if(!rows.length){ $('lbRes').innerHTML='<div class="empty">No data.</div>'; return; }
@@ -520,6 +618,23 @@ function drawLB(period){
     if(team){ head+='<div class="card" style="display:flex;gap:20px"><div><div class="card-s">Team calls</div><div class="card-t">'+esc(team.calls)+'</div></div><div><div class="card-s">Conversations</div><div class="card-t">'+esc(team.conv)+'</div></div><div><div class="card-s">Talk time</div><div class="card-t">'+mins(team.talkSec)+'</div></div></div>'; }
     $('lbRes').innerHTML=stamp(d)+head+rows.map(function(r,i){
       return '<div class="card"><div class="card-t">'+(i+1)+'. '+esc(r.name||r.agent||'—')+'</div><div style="font-family:var(--f-disp);font-weight:600;font-size:var(--fs-base);color:var(--blue);margin:2px 0 4px">'+mins(r.talkSec)+' <span style="font-size:var(--fs-xs);color:var(--mute);font-weight:400;text-transform:uppercase;letter-spacing:.05em">talk time</span></div>'+kv('Calls',r.calls)+kv('Conversations',(r.conv!=null?r.conv:(r.conversations||0)))+'</div>';
+    }).join('');
+  }).catch(fail);
+}
+function drawLBMeetings(period){
+  var seq=++LB_SEQ;
+  $('lbRes').innerHTML=skel(3);
+  cachedCall('meetings',{period:period}).then(function(d){
+    if(seq!==LB_SEQ) return;                       // a newer toggle won
+    if(!d||d.ok===false){ $('lbRes').innerHTML='<div class="empty">'+esc((d&&d.error)||'No meetings data.')+'</div>'; return; }
+    var rows=d.agents||[];
+    if(!rows.length){ $('lbRes').innerHTML='<div class="empty">No meetings in this period.</div>'; return; }
+    var total=rows.reduce(function(a,r){ return a+(Number(r.meetings)||0); },0);
+    var head='<div class="card-s" style="margin:0 2px 10px">Ranked by meetings booked</div>'
+      +'<div class="card" style="display:flex;gap:20px"><div><div class="card-s">Team meetings</div><div class="card-t">'+total+'</div></div><div><div class="card-s">Realtors</div><div class="card-t">'+rows.length+'</div></div></div>';
+    $('lbRes').innerHTML=stamp(d)+head+rows.map(function(r,i){
+      var n=Number(r.meetings)||0;
+      return '<div class="card"><div class="card-t">'+(i+1)+'. '+esc(r.name||'—')+'</div><div style="font-family:var(--f-disp);font-weight:600;font-size:var(--fs-base);color:var(--blue);margin:2px 0 4px">'+n+' <span style="font-size:var(--fs-xs);color:var(--mute);font-weight:400;text-transform:uppercase;letter-spacing:.05em">'+(n===1?'meeting':'meetings')+'</span></div></div>';
     }).join('');
   }).catch(fail);
 }
