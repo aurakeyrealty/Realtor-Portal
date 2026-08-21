@@ -520,10 +520,16 @@ function calcEx(){
 
 function loadGuide(){
   cachedCall('guiderealtors').then(function(d){
-    var r=(d&&d.realtors)||[];
-    var h='<div class="card"><div class="card-s">Pick the realtor presenting, then walk the client through the guide.</div></div>';
-    h+=r.map(function(x){ return '<div class="card" style="display:flex;align-items:center;gap:12px">'+(x.photo?'<img class="avatar" src="'+esc(x.photo)+'">':'<div class="avatar"></div>')+'<div class="card-t" style="margin:0">'+esc(x.name)+'</div></div>'; }).join('');
-    h+='<div class="card"><div class="card-t">Seller Guide</div><div class="card-s">Coming soon.</div></div>';
+    var r=(d&&d.realtors)||[], links=(d&&d.links)||{}, buyers=links.buyers||'';
+    var h=stamp(d)+'<div class="card"><div class="card-s">'+(buyers?'Tap the realtor presenting — the Buyers Guide opens ready to walk through.':'No guide link found on the Dashboard sheet yet — add a “Buyers Guide” link there to activate this page.')+'</div></div>';
+    h+=r.map(function(x){
+      var av=x.photo?'<img class="avatar" loading="lazy" alt="" src="'+esc(x.photo)+'">':'<span class="avatar" style="display:grid;place-items:center;font-family:var(--f-disp);font-weight:700;font-size:15px;color:var(--blue);background:var(--blue-soft)">'+esc(initials(x.name))+'</span>';
+      var inner=av+'<div class="card-t" style="margin:0;flex:1">'+esc(x.name)+'</div>';
+      return buyers?'<a class="card" style="display:flex;align-items:center;gap:12px;text-decoration:none" target="_blank" href="'+esc(buyers)+'">'+inner+'<span style="color:var(--mute);font-size:18px">›</span></a>'
+                   :'<div class="card" style="display:flex;align-items:center;gap:12px;opacity:.55">'+inner+'</div>';
+    }).join('');
+    h+=links.seller?'<a class="card" style="display:block;text-decoration:none" target="_blank" href="'+esc(links.seller)+'"><div class="card-t">Seller Guide</div><div class="card-s">Open the guide ›</div></a>'
+                   :'<div class="card"><div class="card-t">Seller Guide</div><div class="card-s">Coming soon.</div></div>';
     $('content').innerHTML=h;
   }).catch(fail);
 }

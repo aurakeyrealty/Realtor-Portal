@@ -39,7 +39,12 @@ createServer(async (req, res) => {
   if (url.pathname === '/api') {
     try {
       const upstream = await fetch(EXEC + '?' + url.searchParams.toString(), { redirect: 'follow' });
-      const body = await upstream.text();
+      let body = await upstream.text();
+      // Emulate server changes not yet deployed to V1, so the UI is testable locally:
+      // guiderealtors now carries links {buyers, seller} from the Dashboard sheet.
+      if (url.searchParams.get('action') === 'guiderealtors') {
+        try { const j = JSON.parse(body); if (!j.links) { j.links = { buyers: 'https://example.com/dev-buyers-guide', seller: '' }; body = JSON.stringify(j); } } catch {}
+      }
       console.log(url.searchParams.get('action'), '->', upstream.status, body.length + 'b');
       res.writeHead(upstream.status, { 'content-type': 'application/json' });
       res.end(body);
@@ -53,7 +58,7 @@ createServer(async (req, res) => {
 
   try {
     const html = await readFile(new URL('../App.html', import.meta.url), 'utf8');
-    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
     res.end(html.replace('</head>', SHIM + '</head>'));
   } catch (err) {
     res.writeHead(500).end(String(err.message));

@@ -1128,7 +1128,7 @@ function getGuideRealtors_() {
       var link = cellUrl_(rich[i][0], formulas[i][0], disp[i][0]);
       out.push({ name: name, photo: guideThumb_(link) });
     }
-    var res = { ok: true, realtors: out };
+    var res = { ok: true, realtors: out, links: getGuideLinks_() };
     cachePut_('guiderealtors_api', res); return res;
   } catch (e) { return { ok: false, error: String((e && e.message) || e), realtors: [] }; }
 }
