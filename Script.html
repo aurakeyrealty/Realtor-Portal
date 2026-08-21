@@ -197,7 +197,7 @@ function paintHomeContacts(groups){
   var items=(groups.g[homeCat]||{items:[]}).items;
   $('homeContacts').innerHTML=items.map(function(c){
     var sub=[c.title,c.company].filter(Boolean).join(' · ');
-    return '<div class="card" style="display:flex;gap:12px;align-items:flex-start"><span class="avatar" style="width:38px;height:38px;display:grid;place-items:center;font-family:var(--f-disp);font-weight:700;font-size:var(--fs-md);color:var(--blue);background:var(--blue-soft)">'+esc(initials(c.name||c.company))+'</span><div style="min-width:0;flex:1"><div class="card-t" style="margin:0">'+esc(c.name||c.company||'—')+'</div>'+(sub?'<div class="card-s">'+esc(sub)+'</div>':'')+'<div class="lnkrow">'+telBtn(c.direct||c.office||c.phone)+mailBtn(c.email)+'</div></div></div>';
+    return '<div class="card" style="display:flex;gap:12px;align-items:flex-start"><span class="avatar" style="width:2.375rem;height:2.375rem;display:grid;place-items:center;font-family:var(--f-disp);font-weight:700;font-size:var(--fs-md);color:var(--blue);background:var(--blue-soft)">'+esc(initials(c.name||c.company))+'</span><div style="min-width:0;flex:1"><div class="card-t" style="margin:0">'+esc(c.name||c.company||'—')+'</div>'+(sub?'<div class="card-s">'+esc(sub)+'</div>':'')+'<div class="lnkrow">'+telBtn(c.direct||c.office||c.phone)+mailBtn(c.email)+'</div></div></div>';
   }).join('')||'<div class="empty">No contacts in this group.</div>';
 }
 
@@ -339,7 +339,7 @@ var fsSel='', fsSug=[];
 function loadFindSchool(){
   call('fsboards').then(function(d){
     var boards=(d&&d.boards)||[];
-    $('content').innerHTML='<div class="card"><div class="card-s">Pick a board, type the address, and see the assigned schools with their rankings.</div></div>'
+    $('content').innerHTML='<div class="card wide"><div class="card-s">Pick a board, type the address, and see the assigned schools with their rankings.</div></div>'
       +'<div class="chips" id="fsBoards" style="margin-bottom:12px"></div>'
       +'<div class="fbar"><input id="fsAddr" placeholder="12 Queen St, Brampton" autocomplete="off"><button class="gobtn" onclick="fsGo()">Search</button></div>'
       +'<div id="fsSug" class="card" style="display:none;padding:6px 0"></div>'
@@ -388,7 +388,7 @@ function loadCrime(slug){
   cachedCall('crimecities').then(function(d){
     var cities=(d&&(d.cities||d.rows))||[];
     var list=cities.map(function(c){return c.slug?c:{slug:String(c).toLowerCase(),name:c};});
-    $('content').innerHTML='<div class="card"><div class="card-s">Pick a city to see its recorded crime figures.</div></div><div id="crimechips"></div>';
+    $('content').innerHTML='<div class="card wide"><div class="card-s">Pick a city to see its recorded crime figures.</div></div><div id="crimechips"></div>';
     $('crimechips').innerHTML=list.length?'<div class="rowlist">'+list.map(function(c){return '<button class="rowitem" data-s="'+esc(c.slug)+'">'+esc(c.name||c.slug)+'<span class="rmeta">'+ico('chev',14)+'</span></button>';}).join('')+'</div>':'<div class="empty">No cities.</div>';
     $('crimechips').querySelectorAll('.rowitem').forEach(function(b){ b.addEventListener('click',function(){ go('crime', b.dataset.s); }); });
   }).catch(fail);
@@ -463,7 +463,7 @@ function runBC(){
 }
 
 function loadExpenses(){
-  $('content').innerHTML='<div class="card"><div class="card-s">Rough monthly carrying-cost estimate. For a full breakdown use the website calculator.</div></div>'+field('Purchase price ($)','ex_price','850000')+field('Down payment (%)','ex_down','20')+field('Interest rate (%)','ex_rate','5.5')+field('Amortization (years)','ex_am','25')+field('Property tax / year ($)','ex_tax','4500')+field('Condo fees / month ($)','ex_condo','0')+'<button class="gobtn" style="width:100%;padding:13px;margin-top:6px" onclick="calcEx()">Calculate</button><div id="exOut" style="margin-top:14px"></div>';
+  $('content').innerHTML='<div class="card wide"><div class="card-s">Rough monthly carrying-cost estimate. For a full breakdown use the website calculator.</div></div>'+field('Purchase price ($)','ex_price','850000')+field('Down payment (%)','ex_down','20')+field('Interest rate (%)','ex_rate','5.5')+field('Amortization (years)','ex_am','25')+field('Property tax / year ($)','ex_tax','4500')+field('Condo fees / month ($)','ex_condo','0')+'<button class="gobtn" style="width:100%;padding:13px;margin-top:6px" onclick="calcEx()">Calculate</button><div id="exOut" style="margin-top:14px"></div>';
 }
 function field(label,id,val){ return '<label class="seclbl" style="margin-top:12px;display:block">'+esc(label)+'</label><input id="'+id+'" inputmode="decimal" value="'+esc(val)+'" style="width:100%;padding:12px 13px;border:1px solid var(--line);border-radius:8px">'; }
 function num(id){ return parseFloat(($(id).value||'').replace(/[^0-9.]/g,''))||0; }
@@ -479,7 +479,7 @@ function calcEx(){
 function loadGuide(){
   cachedCall('guiderealtors').then(function(d){
     var r=(d&&d.realtors)||[], links=(d&&d.links)||{}, buyers=links.buyers||'';
-    var h=stamp(d)+'<div class="card"><div class="card-s">'+(buyers?'Tap the realtor presenting — the Buyers Guide opens ready to walk through.':'No guide link found on the Dashboard sheet yet — add a “Buyers Guide” link there to activate this page.')+'</div></div>';
+    var h=stamp(d)+'<div class="card wide"><div class="card-s">'+(buyers?'Tap the realtor presenting — the Buyers Guide opens ready to walk through.':'No guide link found on the Dashboard sheet yet — add a “Buyers Guide” link there to activate this page.')+'</div></div>';
     h+=r.map(function(x){
       var av=x.photo?'<img class="avatar" loading="lazy" alt="" src="'+esc(x.photo)+'">':'<span class="avatar" style="display:grid;place-items:center;font-family:var(--f-disp);font-weight:700;font-size:var(--fs-base);color:var(--blue);background:var(--blue-soft)">'+esc(initials(x.name))+'</span>';
       var inner=av+'<div class="card-t" style="margin:0;flex:1">'+esc(x.name)+'</div>';
@@ -497,7 +497,7 @@ function loadCallnight(){
     if(!d||d.ok===false){ $('content').innerHTML='<div class="err">'+esc((d&&d.error)||'No call night data.')+'</div>'; return; }
     var dates=(d.dates||[]).slice(0,1), realtors=d.realtors||[], att=d.attendance||{};
     var latest=dates[0];
-    var h=stamp(d)+'<div class="card"><div class="card-t">Latest: '+esc(latest||'—')+'</div><div class="card-s">'+realtors.length+' realtors tracked</div></div>';
+    var h=stamp(d)+'<div class="card wide"><div class="card-t">Latest: '+esc(latest||'—')+'</div><div class="card-s">'+realtors.length+' realtors tracked</div></div>';
     if(latest){ var present=realtors.filter(function(n){return att[latest]&&att[latest][n];}); h+='<div class="sec-h">Present ('+present.length+')</div><div class="chips">'+present.map(function(n){return '<span class="citychip">'+esc(n)+'</span>';}).join('')+'</div>'; }
     $('content').innerHTML=h;
   }).catch(fail);

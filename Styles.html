@@ -17,7 +17,7 @@
 html,body{margin:0;padding:0;overflow-x:clip}
 body{background:var(--paper);color:var(--ink);font-family:var(--f-body);font-size:var(--fs-base);line-height:1.5;-webkit-font-smoothing:antialiased;font-variant-numeric:tabular-nums}
 button{font-family:inherit;cursor:pointer}
-input{font-family:inherit;font-size:var(--fs-lg2)}
+input{font-family:inherit;font-size:max(16px,var(--fs-lg2))}   /* floor: iOS zooms on focus below 16px */
 a{color:var(--blue)}
 .phone{max-width:var(--col);margin:0 auto;background:var(--paper);min-height:100vh}
 .topbar{background:var(--ink);color:#fff;position:sticky;top:0;z-index:20;padding:0.5rem 1rem;padding-top:calc(0.5rem + env(safe-area-inset-top))}
@@ -116,9 +116,10 @@ body.detail .tbback{display:block}
        and section headers still span the full rail. ---- */
 @media(min-width:44em){
   :root{--col:47.5rem}
-  #content,#slist,#alOut,#homeContacts,#lbRes,#fsOut,#wkRes,#ltbRes{display:grid;grid-template-columns:repeat(auto-fill,minmax(19rem,1fr));gap:0.75rem;align-items:start}
+  #content,#slist,#alOut,#homeContacts,#lbRes,#fsOut,#wkRes,#ltbRes{display:grid;grid-template-columns:repeat(auto-fill,minmax(19rem,1fr));column-gap:0.75rem;align-items:start}
   #content>*,#slist>*,#alOut>*,#homeContacts>*,#lbRes>*,#fsOut>*,#wkRes>*,#ltbRes>*{grid-column:1/-1}
-  #content>.card,#content>.skel,#slist>.card,#alOut>.card,#homeContacts>.card,#lbRes>.card,#lbRes>.skel,#fsOut>.card,#wkRes>.card,#wkRes>.skel,#ltbRes>.card{grid-column:auto;margin-bottom:0}
+  #content>.card,#content>.skel,#slist>.card,#alOut>.card,#homeContacts>.card,#lbRes>.card,#lbRes>.skel,#fsOut>.card,#wkRes>.card,#wkRes>.skel,#ltbRes>.card{grid-column:auto}
+  #content>.card.wide{grid-column:1/-1}   /* intro and summary cards span the rail */
   .login-card{grid-column:1/-1}
 }
 /* ---- Pointer, not width, decides the navigation affordance: touch keeps the
