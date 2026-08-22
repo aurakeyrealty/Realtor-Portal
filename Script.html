@@ -1732,6 +1732,7 @@ function showGate(msg){
   if(msg!=null) $('gate_err').textContent=msg;
   if(!opening) return;                        // never wipe what is being typed
   if(msg==null) $('gate_err').textContent='';
+  gateBusy(false);
   var pw=$('gate_pw'); if(pw){ pw.value=''; pw.type='password'; paintEye(false); }   // never reopen revealed
   try{ $('gate_id').focus(); }catch(e){}
 }
@@ -1740,10 +1741,9 @@ function hideGate(){ document.body.classList.remove('gated'); $('gate').hidden=t
 function doLogin(){
   var id=($('gate_id').value||'').trim(), pw=$('gate_pw').value||'';
   if(!id||!pw){ $('gate_err').textContent='Enter your ID and password.'; return; }
-  var btn=$('gate_go');
-  btn.disabled=true; btn.textContent='Signing in…'; $('gate_err').textContent='';
+  gateBusy(true); $('gate_err').textContent='';
   call('login',{id:id,pw:pw,user:id,pass:pw}).then(function(r){
-    btn.disabled=false; btn.textContent='Sign in';
+    gateBusy(false);
     if(!r||!r.ok||!r.token){ $('gate_err').textContent=sentence(r&&r.error)||'Invalid ID or password.'; return; }
     var rem=$('gate_remember'); TOKEN=r.token; WHO=r.name||id;
     var kept=tokenSet(TOKEN,WHO,!rem||rem.checked);
@@ -1753,9 +1753,16 @@ function doLogin(){
        anyone needs told about */
     toast(kept?('Welcome, '+firstName(WHO)):'Signed in, but this device could not save the session — you may need to sign in again next launch.');
   }).catch(function(){
-    btn.disabled=false; btn.textContent='Sign in';
+    gateBusy(false);
     $('gate_err').textContent='Could not reach the server — check your connection.';
   });
+}
+/* Loading state: the spinner replaces the label rather than the label being
+   rewritten, and the fields lock so a second submit cannot race the first. */
+function gateBusy(on){
+  var btn=$('gate_go'); if(!btn) return;
+  btn.disabled=on; btn.classList[on?'add':'remove']('busy');
+  $('gate_id').disabled=on; $('gate_pw').disabled=on;
 }
 /* the server's errors are lowercase fragments ("invalid id or password"); this
    screen is the one place a realtor reads them raw */
@@ -2005,7 +2012,7 @@ var EYE={ show:'M1.5 12S5 5.5 12 5.5 22.5 12 22.5 12 19 18.5 12 18.5 1.5 12 1.5 
           hide:'M3 3l18 18|M10.6 6.1A7.9 7.9 0 0 1 12 6c7 0 10.5 6 10.5 6a17 17 0 0 1-3.4 3.9M6.2 8.2A17 17 0 0 0 1.5 12S5 18 12 18a9 9 0 0 0 3.4-.6' };
 function paintEye(on){
   var b=$('gate_eye'); if(!b) return;
-  b.innerHTML='<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">'
+  b.innerHTML='<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'
     + EYE[on?'hide':'show'].split('|').map(function(d){ return '<path d="'+d+'"/>'; }).join('') + '</svg>';
   b.setAttribute('aria-label',on?'Hide password':'Show password');
   b.setAttribute('aria-pressed',on?'true':'false');

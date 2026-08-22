@@ -43,10 +43,11 @@ function unwrap(src, tag, file) {
 // Sizes live in manifest() and in the filenames; apple-touch-icon is the only one iOS reads.
 const ICONS = ['apple-touch-icon.png', 'icon-192.png', 'icon-512.png', 'icon-512-maskable.png'];
 
-/* Sign-in artwork, served from the bundle root because that is what the CSS and the
-   markup ask for. Apps Script has nowhere to put binaries, so there these 404 and the
-   gate falls back to its gradient and the AK tile — by design, not by accident. */
-const GATE_ASSETS = ['gate.jpg', 'logo-lockup.png'];
+/* Sign-in artwork, served from the bundle root because that is what the CSS asks for.
+   Apps Script has nowhere to put binaries, so there it 404s and the gate falls back to
+   its scrim and radial — by design, not by accident. The logo is inline SVG now, so
+   the photograph is the only binary the sign-in screen needs. */
+const GATE_ASSETS = ['gate.jpg'];
 
 /* Only icons that actually shipped are advertised: a manifest pointing at a 404
    fails Android's install check silently, and iOS pins a screenshot instead. */
@@ -62,7 +63,7 @@ function manifest(icons) {
     display: 'standalone',
     orientation: 'portrait',
     theme_color: '#0E1A22',
-    background_color: '#E9EDEE',
+    background_color: '#0E1A22',
     icons: [
       has('icon-192.png') && { src: 'icons/icon-192.png', sizes: '192x192', type: 'image/png' },
       has('icon-512.png') && { src: 'icons/icon-512.png', sizes: '512x512', type: 'image/png' },
@@ -220,7 +221,7 @@ export async function build(exec = EXEC) {
   return version;
 }
 
-const TYPES = { html: 'text/html; charset=utf-8', css: 'text/css', js: 'text/javascript', json: 'application/manifest+json', png: 'image/png', svg: 'image/svg+xml' };
+const TYPES = { html: 'text/html; charset=utf-8', css: 'text/css', js: 'text/javascript', json: 'application/manifest+json', png: 'image/png', svg: 'image/svg+xml', jpg: 'image/jpeg', jpeg: 'image/jpeg' };
 
 async function serve(port) {
   createServer(async (req, res) => {
