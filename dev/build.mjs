@@ -21,6 +21,7 @@
 import { readFile, writeFile, mkdir, rm, readdir, copyFile, access } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { createHash } from 'node:crypto';
+import { pathToFileURL } from 'node:url';
 import { EXEC } from './config.mjs';
 
 const ROOT = new URL('..', import.meta.url);
@@ -233,7 +234,9 @@ async function serve(port) {
   }).listen(port, () => console.log('PWA bundle on http://localhost:' + port));
 }
 
-if (process.argv[1] && import.meta.url.endsWith(process.argv[1].split('/').pop())) {
+// Compared as full URLs, not basenames: dev/deploy.mjs imports build() from here,
+// and a basename match would be wrong for any wrapper that entered another file.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   await build();
   if (process.argv.includes('--serve')) await serve(4600);
 }

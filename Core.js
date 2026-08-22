@@ -175,6 +175,26 @@ function cacheGet_(k) {
   try { var h = cacheGetStr_(k); return h ? JSON.parse(h) : null; } catch (e) { return null; }
 }
 function cachePut_(k, v, ttl) { try { delete __CMEMO[k]; cachePutStr_(k, JSON.stringify(v), ttl); } catch (e) {} }
+/* Read-through with a stampede guard. Without it, everyone who arrives during a
+   long rebuild starts their own: five realtors opening at 9am on a cold cache
+   meant five concurrent 60-second rebuilds, and ~90 of those exhaust a consumer
+   account's whole daily runtime. The first caller builds; the rest wait briefly
+   and take the fresh value. Whoever still misses builds anyway — a slow answer
+   beats none, and correctness never depends on holding the lock. */
+function cachedBuild_(key, build, ttl) {
+  var hit = cacheGet_(key); if (hit) return hit;
+  var lock = null;
+  try { lock = LockService.getScriptLock(); if (!lock.tryLock(0)) lock = null; } catch (e) { lock = null; }
+  if (!lock) {
+    try { Utilities.sleep(1500); } catch (e) {}
+    var second = cacheGet_(key); if (second) return second;
+  }
+  try {
+    var built = build();
+    cachePut_(key, built, ttl);
+    return built;
+  } finally { if (lock) { try { lock.releaseLock(); } catch (e) {} } }
+}
 /* The web app is anonymous, so `fresh` must not let a caller force unlimited full-sheet
    reads: at most one cache-busting rebuild per action per 30s. A user tapping Refresh
    still gets a rebuild; a loop cannot exhaust the script's quota. */
@@ -264,6 +284,10 @@ function doGet(e) {
   // A password or a live token in a query string is written to the execution log
   // and every proxy on the way. These two are POST-only; doPost carries them.
   if (a === 'login' || a === 'session') return json_({ ok: false, error: 'use POST for ' + a });
+  // Same rule, same reason, for every other action: a live token in a query string
+  // lands in the execution log, browser history and the Referer of any outbound
+  // link. The client only ever POSTs, so nothing legitimate is turned away.
+  if (p.auth) return json_({ ok: false, error: 'use POST when sending auth' });
 
   // Everything goes through app()'s switch — ONE dispatch table, no drift, and
   // the same set of actions whether the caller used GET, POST or the HtmlService
@@ -300,7 +324,9 @@ function requireAuth_(p) {
 }
 function app(action, p) {
   p = p || {}; action = String(action || '');
-  if (!PUBLIC_ACTIONS[action]) {
+  // hasOwnProperty, not a bare lookup: 'constructor', 'toString' and friends are
+  // truthy on any plain object and would walk straight past the gate.
+  if (!Object.prototype.hasOwnProperty.call(PUBLIC_ACTIONS, action)) {
     var tok = requireAuth_(p);
     if (!tok) return { ok: false, error: 'login required' };
     p.__tok = tok;   // handlers reuse the already-verified token instead of re-checking
@@ -313,7 +339,7 @@ function app(action, p) {
     case 'city':          return getProjects_(p.name);
     case 'focus':         return getFocus_();
     case 'listings':      return getListings_();
-    case 'builders':      return getBuilders_();
+    case 'builders':      return getBuilders_(p.__tok && p.__tok.role === 'admin');
     case 'contractors':   return getContractors_();
     case 'contacts':      return getContacts_();
     case 'resources':     return getResources_();
@@ -327,7 +353,10 @@ function app(action, p) {
     case 'getRankings':
     case 'getSchools':    return rankingsSlim_();
     case 'schoolfinder':  return getSchoolFinder_();
-    case 'basement':      return getBasement_(p.addr || p.address);
+    // Stripped at the boundary rather than at each of the six return points inside.
+    case 'basement':      return (p.__tok && p.__tok.role === 'admin')
+                            ? getBasement_(p.addr || p.address)
+                            : stripDbg_(getBasement_(p.addr || p.address));
     case 'basementcoverage': return getBasementCoverage_();
     case 'ltb':           return getLTB_(p.q || p.query, p.offset);
     case 'crime':         return getCrimeCity_(p.slug || p.city);

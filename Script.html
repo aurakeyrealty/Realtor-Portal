@@ -73,6 +73,25 @@ function callHttp(action,p){
     })
     .then(function(d){ settle(); return d; }, function(e){ settle(); throw (e&&e.name==='AbortError')?new Error('timed out'):e; });
 }
+/* Nothing evicted these before, so a few weeks of browsing cities filled the origin's
+   quota — and the first casualty was the token write, which is a bare try/catch, so
+   sign-in silently stopped persisting and every launch showed the gate again. Oldest
+   entries go first; the caller's write is retried once room is made. */
+function cacheEvictOldest(n){
+  try{
+    var keys=Object.keys(localStorage).filter(function(k){ return k.indexOf('akc_')===0; });
+    var aged=keys.map(function(k){
+      var at=0; try{ at=(JSON.parse(localStorage.getItem(k))||{}).at||0; }catch(e){}
+      return {k:k,at:at};
+    }).sort(function(a,b){ return a.at-b.at; });
+    for(var i=0;i<Math.min(n,aged.length);i++) localStorage.removeItem(aged[i].k);
+    return aged.length>0;
+  }catch(e){ return false; }
+}
+function cachePersist(key,val){
+  try{ localStorage.setItem(key,val); return true; }
+  catch(e){ return cacheEvictOldest(8) ? (function(){ try{ localStorage.setItem(key,val); return true; }catch(e2){ return false; } })() : false; }
+}
 /* read-through cache: instant back-navigation, offline fallback, manual refresh */
 var MEM={}, FRESH=false, RENDER_FRESH=false, CACHE_TTL=600000, RENDER_SEQ=0;
 var STALE_ERR={stale:true};
@@ -81,24 +100,34 @@ function ckey(a,p){ return a+':'+JSON.stringify(p||{}); }
 /* shallow copy so the offline flag never sticks to the cached object */
 function offlineCopy(d,at){ var c={}; for(var ck in d) c[ck]=d[ck]; c.__offline=at; return c; }
 function cachedCall(action,params){ return freshOnly(cachedCallRaw(action,params)); }
+/* Identical calls in flight at the same moment share one request. Cities asks for
+   citycounts and focus together and both rebuild the same 60-tab index server-side,
+   so without this a single tap could start two 60-second builds that cannot see
+   each other's cache write. */
+var INFLIGHT={};
 function cachedCallRaw(action,params){
   var k=ckey(action,params), fresh=RENDER_FRESH;
   if(!fresh){
     var m=MEM[k];
     if(m && Date.now()-m.at<CACHE_TTL) return Promise.resolve(m.data);
+    if(INFLIGHT[k]) return INFLIGHT[k];
   }
   var p=params||{};
   if(fresh){ p={}; for(var kk in params) p[kk]=params[kk]; p.fresh=1; }
-  return call(action,p).then(function(d){
+  var pr=call(action,p).then(function(d){
     if(isAuthErr(d)) return d;   // never cache a 'login required' refusal
     MEM[k]={data:d,at:Date.now()};
-    try{ var sj=JSON.stringify({data:d,at:Date.now()}); if(sj.length<200000) localStorage.setItem('akc_'+k,sj); }catch(e){}
+    try{ var sj=JSON.stringify({data:d,at:Date.now()}); if(sj.length<200000) cachePersist('akc_'+k,sj); }catch(e){}
     return d;
   }).catch(function(err){
     var m2=MEM[k]; if(m2) return offlineCopy(m2.data,m2.at);
     try{ var raw=localStorage.getItem('akc_'+k); if(raw){ var o=JSON.parse(raw); return offlineCopy(o.data,o.at); } }catch(e2){}
     throw err;
   });
+  INFLIGHT[k]=pr;
+  // Cleared however it settles, so a failure never pins a rejected promise here.
+  pr.then(function(){ delete INFLIGHT[k]; }, function(){ delete INFLIGHT[k]; });
+  return pr;
 }
 function refreshView(){ FRESH=true; route(); }
 function ago(t){ var ms=Date.now()-(typeof t==='number'?t:new Date(t).getTime()); if(isNaN(ms)||ms<0||ms>2592000000) return ''; var m=Math.round(ms/60000); if(m<1) return 'just now'; if(m<60) return m+'m ago'; var h=Math.round(m/60); return h<24?h+'h ago':Math.round(h/24)+'d ago'; }
@@ -166,12 +195,26 @@ function go(v,arg){
 }
 var SCROLLPOS={};
 function route(){
+  try{ routeInner(); }
+  catch(err){
+    /* The skeleton is already painted by this point, so a throw here used to leave
+       the placeholder cards up for good — the blank screen with no way out but a
+       reload. Whatever went wrong, the user gets a way forward. */
+    logErr('route: '+((err&&err.message)||err));
+    try{ $('content').innerHTML='<div class="err">Could not open that screen.<br><span style="color:var(--mute)">Try Home from the menu.</span></div>'; }catch(e2){}
+  }
+}
+function routeInner(){
   if(!TOKEN){ showGate(); return; }      // hash changes must not slip past the gate
   closeDrawer();
   RENDER_SEQ++;
   RENDER_FRESH=FRESH; FRESH=false;
   var h=(location.hash||'').replace(/^#/,''), parts=h.split('/');
-  var v=parts[0]||'home', arg=parts.length>1?decodeURIComponent(parts.slice(1).join('/')):null;
+  var raw=parts.length>1?parts.slice(1).join('/'):null, arg=raw;
+  // A lone % is not valid percent-encoding, and a shared or truncated link can
+  // carry one. The raw segment is a better answer than an aborted render.
+  if(raw!=null){ try{ arg=decodeURIComponent(raw); }catch(e){ arg=raw; } }
+  var v=parts[0]||'home';
   if(!LOAD[v]){ v='home'; arg=null; }
   var item=NAV.filter(function(n){return n.v===v;})[0];
   $('scr-title').textContent=item?item.t:(arg||v); $('scr-sub').textContent=item?(SUB[v]||''):'';
@@ -237,7 +280,20 @@ function restoreScroll(y){
     tries++; setTimeout(attempt,50);
   })();
 }
-function fail(e){ if(e===STALE_ERR) return; $('content').innerHTML='<div class="err">Could not load — try again.<br><span style="color:var(--mute)">'+esc((e&&e.message)||e||'')+'</span></div>'; }
+/* A small ring of recent failures. The app has no logging of its own, so every
+   silent path used to be undiagnosable after the fact — while the user was shown
+   raw JS internals instead. Now the reverse: a plain sentence on screen, the
+   detail kept here for `akErrors()` in the console. */
+var ERRLOG=[];
+function logErr(msg){
+  try{ ERRLOG.push({at:new Date().toISOString(),msg:String(msg)}); if(ERRLOG.length>25) ERRLOG.shift(); }catch(e){}
+}
+window.akErrors=function(){ return ERRLOG.slice(); };
+function fail(e){
+  if(e===STALE_ERR) return;
+  logErr('load: '+((e&&e.message)||e||''));
+  $('content').innerHTML='<div class="err">Could not load — try again.<br><span style="color:var(--mute)">Check your connection, or pull the Refresh button above.</span></div>';
+}
 
 function kv(k,v){ if(v==null||v===''||typeof v==='object')return''; if(isUrl(v))return '<div class="kv"><span class="kk">'+esc(k)+'</span><a class="vv" href="'+esc(v)+'" target="_blank" rel="noopener noreferrer">'+esc(host(v))+'</a></div>'; return '<div class="kv"><span class="kk">'+esc(k)+'</span><span class="vv">'+esc(v)+'</span></div>'; }
 /* a spreadsheet cell is untrusted input: esc() stops it breaking out of the
@@ -375,7 +431,10 @@ var CITY_DATA=[], CITY_FOCUS={}, cityFocusOnly=false, cityQ='';
 function loadCities(){
   Promise.all([cachedCall('citycounts'),cachedCall('focus')]).then(function(r){
     var cc=r[0]||{}, fo=r[1]||{};
-    CITY_DATA=(cc.cities||[]).map(function(c){ return (typeof c==='string')?{city:c,count:0}:{city:c.city||c.name||c.tab, count:c.count||c.projects||0}; });
+    /* Staff edit these tabs daily. One row without a usable name used to throw in
+       the sort comparator and take all forty cities down with it. */
+    CITY_DATA=(cc.cities||[]).map(function(c){ return (typeof c==='string')?{city:c,count:0}:{city:c.city||c.name||c.tab||'', count:c.count||c.projects||0}; })
+      .filter(function(c){ return !!String(c.city||'').trim(); });
     CITY_FOCUS={}; ((fo.rows)||[]).forEach(function(p){ var c=(p.city||'').toUpperCase(); if(c) CITY_FOCUS[c]=(CITY_FOCUS[c]||0)+1; });
     $('content').innerHTML=stamp(cc)+'<div class="fbar"><input id="citySearch" placeholder="Search a city…" value="'+esc(cityQ)+'"></div>'
       +'<div class="seg"><button id="cAll" class="'+(cityFocusOnly?'':'on')+'">All</button><button id="cFocus" class="'+(cityFocusOnly?'on':'')+'">'+ico('star',13)+' Focus only</button></div>'
@@ -392,9 +451,9 @@ function renderCities(){
   var q=cityQ.trim().toLowerCase();
   var rows=CITY_DATA.filter(function(c){
     if(cityFocusOnly && focusCount(c.city)<=0) return false;
-    if(q && c.city.toLowerCase().indexOf(q)<0) return false;
+    if(q && String(c.city||'').toLowerCase().indexOf(q)<0) return false;
     return true;
-  }).sort(function(a,b){return a.city.toLowerCase()<b.city.toLowerCase()?-1:1;});
+  }).sort(function(a,b){return String(a.city||'').toLowerCase()<String(b.city||'').toLowerCase()?-1:1;});
   var tot=0; rows.forEach(function(c){tot+=(c.count||0);});
   $('cityCount').textContent=rows.length+(rows.length===1?' city':' cities')+' · '+tot+(tot===1?' project':' projects');
   $('cityGrid').innerHTML=rows.length?'<div class="rowlist">'+rows.map(function(c){
@@ -1626,12 +1685,21 @@ var SESSION_MS=7*24*60*60*1000;      // must match SESSION_MS in Core.js
 function tokenStore(){ try{ return localStorage.getItem('ak_remember')==='0'?sessionStorage:localStorage; }catch(e){ return localStorage; } }
 function tokenGet(){ try{ return sessionStorage.getItem('ak_token')||localStorage.getItem('ak_token')||null; }catch(e){ return null; } }
 function whoGet(){ try{ return sessionStorage.getItem('ak_who')||localStorage.getItem('ak_who')||null; }catch(e){ return null; } }
+/* Returns false when the session could not be persisted — a full store used to be
+   swallowed here, and the user only found out by being re-gated on every launch
+   with no way to fix it. Callers surface it; evicting cached screens is the cheap
+   fix, and losing them costs a refetch, not a session. */
 function tokenSet(t,who,remember){
   try{
     if(remember!=null) localStorage.setItem('ak_remember',remember?'1':'0');
     var s=tokenStore();
     s.setItem('ak_token',t); if(who!=null) s.setItem('ak_who',who);
-  }catch(e){}
+    return true;
+  }catch(e){
+    cacheEvictOldest(24);
+    try{ var s2=tokenStore(); s2.setItem('ak_token',t); if(who!=null) s2.setItem('ak_who',who); return true; }
+    catch(e2){ logErr('token could not be saved: '+((e2&&e2.name)||'storage full')); return false; }
+  }
 }
 function tokenClear(){ try{ [localStorage,sessionStorage].forEach(function(s){ s.removeItem('ak_token'); s.removeItem('ak_who'); }); }catch(e){} }
 
@@ -1677,12 +1745,13 @@ function doLogin(){
   call('login',{id:id,pw:pw,user:id,pass:pw}).then(function(r){
     btn.disabled=false; btn.textContent='Sign in';
     if(!r||!r.ok||!r.token){ $('gate_err').textContent=sentence(r&&r.error)||'Invalid ID or password.'; return; }
-    var rem=$('gate_remember'); TOKEN=r.token; WHO=r.name||id; tokenSet(TOKEN,WHO,!rem||rem.checked);
+    var rem=$('gate_remember'); TOKEN=r.token; WHO=r.name||id;
+    var kept=tokenSet(TOKEN,WHO,!rem||rem.checked);
     $('gate_pw').value='';
     hideGate(); paintNavUser(); route();
     /* only on a real sign-in — a renewed session on launch is not an event
        anyone needs told about */
-    toast('Welcome, '+firstName(WHO));
+    toast(kept?('Welcome, '+firstName(WHO)):'Signed in, but this device could not save the session — you may need to sign in again next launch.');
   }).catch(function(){
     btn.disabled=false; btn.textContent='Sign in';
     $('gate_err').textContent='Could not reach the server — check your connection.';
@@ -1712,7 +1781,10 @@ function toast(msg,ms){
 }
 function loadMyDeals(){
   if(!TOKEN){ showGate(); return; }
-  freshOnly(call('mydeals',{auth:TOKEN})).then(function(d){
+  /* Cached like every other screen: instant on back-navigation and readable
+     offline. No auth in the params — call() attaches the token itself, and a
+     renewed token in the key would miss the cache on every launch. */
+  cachedCall('mydeals').then(function(d){
     if(!d||d.ok===false){ if(isAuthErr(d)){ sessionLost(); return; } $('content').innerHTML='<div class="err">'+esc((d&&d.error)||'Could not load.')+'</div>'; return; }
     renderMyDeals(d);
   }).catch(fail);
