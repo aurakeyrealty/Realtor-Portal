@@ -15,11 +15,24 @@
 }
 *{box-sizing:border-box}
 html,body{margin:0;padding:0;overflow-x:clip}
+/* Long unbroken strings -- an address with no spaces, a pasted URL, an email in
+   a narrow cell -- are the usual way a phone layout gains a sideways scroll. */
+body{overflow-wrap:break-word}
 body{background:var(--paper);color:var(--ink);font-family:var(--f-body);font-size:var(--fs-base);line-height:1.5;-webkit-font-smoothing:antialiased;font-variant-numeric:tabular-nums}
 button{font-family:inherit;cursor:pointer}
 input{font-family:inherit;font-size:max(16px,var(--fs-lg2))}   /* floor: iOS zooms on focus below 16px */
 a{color:var(--blue)}
-.phone{max-width:var(--col);margin:0 auto;background:var(--paper);min-height:100vh}
+/* The clip is repeated here, and this is the copy that does the work on iOS.
+   On html/body it only takes effect through overflow propagation to the viewport,
+   which Safari applies inconsistently for `clip` -- so a stray wide child scrolls
+   the page sideways there while measuring clean everywhere else. On an ordinary
+   block like this one, clip is just clip.
+
+   `clip` and not `hidden`: hidden would make this a scroll container and break
+   the sticky .topbar inside it. clip establishes no scrollport, so sticky still
+   resolves against the viewport, and the fixed .tabbar/.toTop are unaffected
+   because this element is not their containing block. */
+.phone{max-width:var(--col);margin:0 auto;background:var(--paper);min-height:100vh;overflow-x:clip}
 .topbar{background:var(--ink);color:#fff;position:sticky;top:0;z-index:20;padding:0.5rem 1rem;padding-top:calc(0.5rem + env(safe-area-inset-top))}
 .hdr{background:var(--ink);color:#fff;padding:0.25rem 1rem 1rem}
 .hdr-row{display:flex;align-items:center;gap:0.75rem}
