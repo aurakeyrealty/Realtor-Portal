@@ -42,6 +42,11 @@ function unwrap(src, tag, file) {
 // Sizes live in manifest() and in the filenames; apple-touch-icon is the only one iOS reads.
 const ICONS = ['apple-touch-icon.png', 'icon-192.png', 'icon-512.png', 'icon-512-maskable.png'];
 
+/* Sign-in artwork, served from the bundle root because that is what the CSS and the
+   markup ask for. Apps Script has nowhere to put binaries, so there these 404 and the
+   gate falls back to its gradient and the AK tile — by design, not by accident. */
+const GATE_ASSETS = ['gate.jpg', 'logo-lockup.png'];
+
 /* Only icons that actually shipped are advertised: a manifest pointing at a 404
    fails Android's install check silently, and iOS pins a screenshot instead. */
 function manifest(icons) {
@@ -138,6 +143,8 @@ export async function build(exec = EXEC) {
   for (const file of ICONS) if (await exists('icons/' + file, ASSETS)) icons.push(file);
   const splash = (await exists('splash-links.html', ASSETS)) ? await read('splash-links.html', ASSETS) : '';
   const splashFiles = splash ? await readdir(new URL('splash/', ASSETS)).catch(() => []) : [];
+  const gateAssets = [];
+  for (const file of GATE_ASSETS) if (await exists(file, ASSETS)) gateAssets.push(file);
   const favicon = (await exists('icons/favicon.svg', ASSETS)) ? 'favicon.svg' : (await exists('icons/favicon.png', ASSETS)) ? 'favicon.png' : '';
 
   // A deploy without icons is not installable, and www/ is gitignored so nothing
@@ -183,10 +190,11 @@ export async function build(exec = EXEC) {
   const h = createHash('sha256').update(index).update(css).update(js).update(mf);
   for (const f of iconFiles) h.update(f).update(await readFile(new URL('icons/' + f, ASSETS)));
   for (const f of splashFiles) h.update(f).update(await readFile(new URL('splash/' + f, ASSETS)));
+  for (const f of gateAssets) h.update(f).update(await readFile(new URL(f, ASSETS)));
   const version = h.digest('hex').slice(0, 10);
 
   const required = ['index.html', 'app.css', 'app.js', 'manifest.json'];
-  const optional = iconFiles.map((f) => 'icons/' + f).concat(splashFiles.map((f) => 'splash/' + f));
+  const optional = iconFiles.map((f) => 'icons/' + f).concat(splashFiles.map((f) => 'splash/' + f)).concat(gateAssets);
 
   await rm(OUT, { recursive: true, force: true });
   await mkdir(new URL('icons/', OUT), { recursive: true });
@@ -196,6 +204,7 @@ export async function build(exec = EXEC) {
   await writeFile(new URL('manifest.json', OUT), mf);
   await writeFile(new URL('sw.js', OUT), serviceWorker(version, required, optional));
   for (const f of iconFiles) await copyFile(new URL('icons/' + f, ASSETS), new URL('icons/' + f, OUT));
+  for (const f of gateAssets) await copyFile(new URL(f, ASSETS), new URL(f, OUT));
   if (splashFiles.length) {
     await mkdir(new URL('splash/', OUT), { recursive: true });
     for (const f of splashFiles) await copyFile(new URL('splash/' + f, ASSETS), new URL('splash/' + f, OUT));
@@ -205,6 +214,7 @@ export async function build(exec = EXEC) {
   console.log('built www/  (shell ' + version + ')');
   console.log('  index.html ' + kb(index) + '   app.css ' + kb(css) + '   app.js ' + kb(js));
   console.log('  icons: ' + (icons.length ? icons.join(', ') : 'NONE — drop PNGs in assets/icons/'));
+  console.log('  gate:  ' + (gateAssets.length ? gateAssets.join(', ') : 'NONE — gradient + AK tile fallback'));
   console.log('  splash: ' + (splash ? 'yes' : 'none') + '   API → ' + exec);
   return version;
 }

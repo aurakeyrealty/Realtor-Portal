@@ -1619,10 +1619,21 @@ function loadVacations(){ rowsPage('vacations','Filter by name',['name','from','
    can swap localStorage for Capacitor Preferences without touching the gate. */
 var TOKEN=null, WHO=null;
 var SESSION_MS=7*24*60*60*1000;      // must match SESSION_MS in Core.js
-function tokenGet(){ try{ return localStorage.getItem('ak_token')||null; }catch(e){ return null; } }
-function whoGet(){ try{ return localStorage.getItem('ak_who')||null; }catch(e){ return null; } }
-function tokenSet(t,who){ try{ localStorage.setItem('ak_token',t); if(who!=null) localStorage.setItem('ak_who',who); }catch(e){} }
-function tokenClear(){ try{ localStorage.removeItem('ak_token'); localStorage.removeItem('ak_who'); }catch(e){} }
+/* "Remember me" chooses which store the session lives in: localStorage survives a
+   relaunch, sessionStorage dies with the app — the answer for a shared office iPad.
+   The choice itself is remembered so a renewal keeps the store the sign-in picked.
+   Reads look in both, and clearing wipes both, so a session can never be half-gone. */
+function tokenStore(){ try{ return localStorage.getItem('ak_remember')==='0'?sessionStorage:localStorage; }catch(e){ return localStorage; } }
+function tokenGet(){ try{ return sessionStorage.getItem('ak_token')||localStorage.getItem('ak_token')||null; }catch(e){ return null; } }
+function whoGet(){ try{ return sessionStorage.getItem('ak_who')||localStorage.getItem('ak_who')||null; }catch(e){ return null; } }
+function tokenSet(t,who,remember){
+  try{
+    if(remember!=null) localStorage.setItem('ak_remember',remember?'1':'0');
+    var s=tokenStore();
+    s.setItem('ak_token',t); if(who!=null) s.setItem('ak_who',who);
+  }catch(e){}
+}
+function tokenClear(){ try{ [localStorage,sessionStorage].forEach(function(s){ s.removeItem('ak_token'); s.removeItem('ak_who'); }); }catch(e){} }
 
 /* The token is "user|role|issued" base64url'd, plus the server's signature. We
    read only the timestamp, and only to skip a pointless round trip on a token
@@ -1653,7 +1664,7 @@ function showGate(msg){
   if(msg!=null) $('gate_err').textContent=msg;
   if(!opening) return;                        // never wipe what is being typed
   if(msg==null) $('gate_err').textContent='';
-  var pw=$('gate_pw'); if(pw) pw.value='';
+  var pw=$('gate_pw'); if(pw){ pw.value=''; pw.type='password'; paintEye(false); }   // never reopen revealed
   try{ $('gate_id').focus(); }catch(e){}
 }
 function hideGate(){ document.body.classList.remove('gated'); $('gate').hidden=true; }
@@ -1666,7 +1677,7 @@ function doLogin(){
   call('login',{id:id,pw:pw,user:id,pass:pw}).then(function(r){
     btn.disabled=false; btn.textContent='Sign in';
     if(!r||!r.ok||!r.token){ $('gate_err').textContent=sentence(r&&r.error)||'Invalid ID or password.'; return; }
-    TOKEN=r.token; WHO=r.name||id; tokenSet(TOKEN,WHO);
+    var rem=$('gate_remember'); TOKEN=r.token; WHO=r.name||id; tokenSet(TOKEN,WHO,!rem||rem.checked);
     $('gate_pw').value='';
     hideGate(); paintNavUser(); route();
     /* only on a real sign-in — a renewed session on launch is not an event
@@ -1916,8 +1927,29 @@ window.addEventListener('hashchange', route);
    With a live token, render immediately and verify behind it. Blocking on a
    round trip would put a spinner in front of an app built to work offline, and
    a token the server refuses is torn down a moment later anyway. */
+/* Two eyes: open when the password is hidden (tap to reveal), struck through when
+   it is showing. Drawn here rather than in the markup so both states stay together. */
+var EYE={ show:'M1.5 12S5 5.5 12 5.5 22.5 12 22.5 12 19 18.5 12 18.5 1.5 12 1.5 12z|M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z',
+          hide:'M3 3l18 18|M10.6 6.1A7.9 7.9 0 0 1 12 6c7 0 10.5 6 10.5 6a17 17 0 0 1-3.4 3.9M6.2 8.2A17 17 0 0 0 1.5 12S5 18 12 18a9 9 0 0 0 3.4-.6' };
+function paintEye(on){
+  var b=$('gate_eye'); if(!b) return;
+  b.innerHTML='<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">'
+    + EYE[on?'hide':'show'].split('|').map(function(d){ return '<path d="'+d+'"/>'; }).join('') + '</svg>';
+  b.setAttribute('aria-label',on?'Hide password':'Show password');
+  b.setAttribute('aria-pressed',on?'true':'false');
+}
+function toggleEye(){
+  var pw=$('gate_pw'); if(!pw) return;
+  var on=pw.type==='password';
+  pw.type=on?'text':'password';
+  paintEye(on);
+  try{ pw.focus(); pw.setSelectionRange(pw.value.length,pw.value.length); }catch(e){}
+}
 function boot(){
   $('gateForm').addEventListener('submit',function(e){ e.preventDefault(); doLogin(); });
+  paintEye(false);
+  $('gate_eye').addEventListener('click',toggleEye);
+  var rem=$('gate_remember'); try{ if(rem) rem.checked=localStorage.getItem('ak_remember')!=='0'; }catch(e){}
   var stored=tokenGet(); WHO=whoGet(); paintNavUser();
   if(!stored){ tokenClear(); showGate(); return; }
 
