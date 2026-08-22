@@ -25,12 +25,26 @@ function lbKey_(p) {
   if (p === 'last') return fubLastKey_();          // always the month before
   return p;   // 'week' | 'year' | a specific 'y2026m08' from the month picker
 }
+/* `period` arrives from the client and lbKey_ passes anything it does not recognise
+   straight through, so it must never be pasted into a cache key as-is: arbitrary
+   values would mint unbounded entries and push real ones out of a cache that holds
+   1000 items -- including the chunks of the city index this all exists to keep warm.
+   A '|' would be worse still, since chunk parts live at `key|N`. Only the shapes the
+   app actually asks for get a key; anything else is served correctly but uncached. */
+function lbCacheKey_(prefix, key) {
+  return /^(week|year|all|y\d{4}(m\d{2})?)$/.test(String(key)) ? prefix + key : '';
+}
 function getLeaderboard_(key) {
   key = lbKey_(key);
+  /* Cached per resolved period key, so switching tabs re-reads the sheet at most
+     once per period per TTL instead of on every tap. */
+  var ck = lbCacheKey_('lb_api_', key), hit = ck ? cacheGet_(ck) : null; if (hit) return hit;
   try {
     var sh = ssFor_('main').getSheetByName('Leaderboard');
-    if (!sh || sh.getLastRow() < 2) return { ok: false, error: 'No leaderboard data yet.' };
-    var vals = sh.getRange(2, 1, sh.getLastRow() - 1, 6).getValues(), list = [], updated = '';
+    if (!sh) return { ok: false, error: 'No leaderboard data yet.' };
+    var lastRow = sh.getLastRow();
+    if (lastRow < 2) return { ok: false, error: 'No leaderboard data yet.' };
+    var vals = sh.getRange(2, 1, lastRow - 1, 6).getValues(), list = [], updated = '';
     if (key === 'year') {
       var yr = String(new Date().getFullYear()), by = {};
       for (var r = 0; r < vals.length; r++) {
@@ -54,25 +68,28 @@ function getLeaderboard_(key) {
     list.sort(function (x, y) { return (y.talkSec - x.talkSec) || (y.calls - x.calls); });
     var team = { calls: 0, conv: 0, talkSec: 0 };
     list.forEach(function (a) { team.calls += a.calls; team.conv += a.conv; team.talkSec += a.talkSec; });
-    return { ok: true, period: key, updated: updated, team: team, agents: list };
+    var res = { ok: true, period: key, updated: updated, team: team, agents: list };
+    if (ck) cachePut_(ck, res);
+    return res;
   } catch (e) { return { ok: false, error: String((e && e.message) || e) }; }
 }
 
 /* FAQ */
 function getFaqs_() {
   var hit = cacheGet_('faqs_api'); if (hit) return hit;
-  var sheets = ssFor_('main').getSheets(), sh = null;
+  var sheets = sheetsFor_('main'), sh = null;
   for (var i = 0; i < sheets.length; i++) if (sheets[i].getName().toUpperCase().indexOf('FAQ') >= 0) { sh = sheets[i]; break; }
   if (!sh || sh.getLastRow() < 2) return { count: 0, rows: [] };
-  var rng = sh.getDataRange(), disp = rng.getDisplayValues(), rts = [], fmls = [];
-  try { rts = rng.getRichTextValues(); } catch (e) {}
-  try { fmls = rng.getFormulas(); } catch (e) {}
+  var disp = sh.getDataRange().getDisplayValues(), rts = [], fmls = [];
   var hr = -1;
   for (var r = 0; r < Math.min(6, disp.length) && hr < 0; r++) { if (disp[r].map(function (c) { return String(c || '').trim().toUpperCase(); }).indexOf('QUESTION') >= 0) hr = r; }
   if (hr < 0) hr = 0;
   var hdr = disp[hr].map(function (c) { return String(c || '').trim().toUpperCase(); });
   function col(keys) { for (var c = 0; c < hdr.length; c++) for (var k = 0; k < keys.length; k++) if (hdr[c] === keys[k]) return c; for (var c2 = 0; c2 < hdr.length; c2++) for (var k2 = 0; k2 < keys.length; k2++) if (hdr[c2].indexOf(keys[k2]) >= 0) return c2; return -1; }
   var m = { category: col(['CATEGORY', 'TYPE', 'SECTION']), question: col(['QUESTION', 'Q']), answer: col(['ANSWER', 'RESPONSE']), source: col(['SOURCE', 'LINK', 'URL', 'REFERENCE']) };
+  /* Only the source column carries links — fetch that column, not the whole sheet. */
+  rts = colRange_(sh, m.source, disp.length, 'rich');
+  fmls = colRange_(sh, m.source, disp.length, 'formula');
   function g(row, k) { return m[k] >= 0 ? String(row[m[k]] || '').trim() : ''; }
   var out = [], lastCat = '';
   for (var r2 = hr + 1; r2 < disp.length; r2++) {
@@ -80,7 +97,7 @@ function getFaqs_() {
     if (cat) lastCat = cat;
     if (!q) continue;
     var src = g(disp[r2], 'source'), url = '';
-    if (m.source >= 0) url = cellUrl_(rts[r2] ? rts[r2][m.source] : null, fmls[r2] ? fmls[r2][m.source] : '', src);
+    if (m.source >= 0) url = cellUrl_(rts[r2] ? rts[r2][0] : null, fmls[r2] ? fmls[r2][0] : '', src);
     out.push({ category: (cat || lastCat || 'General'), question: q, answer: g(disp[r2], 'answer'), source: url, sourceText: (url && /^https?:/i.test(src)) ? '' : src });
   }
   var res = { updated: new Date().toISOString(), count: out.length, rows: out };
@@ -90,10 +107,10 @@ function getFaqs_() {
 /* Vacation Tracker */
 function getVacations_() {
   var hit = cacheGet_('vacations_api'); if (hit) return hit;
-  var sheets = ssFor_('main').getSheets(), sh = null;
+  var sheets = sheetsFor_('main'), sh = null;
   for (var i = 0; i < sheets.length && !sh; i++) if (sheets[i].getName().trim().toUpperCase().indexOf('VACATION') >= 0) sh = sheets[i];
   if (!sh || sh.getLastRow() < 2) return { count: 0, rows: [] };
-  var disp = sh.getDataRange().getDisplayValues(), vals = sh.getDataRange().getValues();
+  var rng = sh.getDataRange(), disp = rng.getDisplayValues(), vals = rng.getValues();
   var hr = -1;
   for (var r = 0; r < Math.min(5, disp.length) && hr < 0; r++) { var row = disp[r].map(function (c) { return String(c || '').trim().toUpperCase(); }); if (row.indexOf('NAME') >= 0 && (row.indexOf('FROM') >= 0 || row.indexOf('TO') >= 0)) hr = r; }
   if (hr < 0) hr = 0;
@@ -135,6 +152,7 @@ function callNightSheet_() {
   return null;
 }
 function getCallNight_() {
+  var hit = cacheGet_('callnight_api'); if (hit) return hit;
   try {
     var sh = callNightSheet_();
     if (!sh) return { ok: false, error: 'No "Call Night" sheet found.', realtors: [], dates: [], attendance: {} };
@@ -159,7 +177,10 @@ function getCallNight_() {
         names.forEach(function (n) { attendance[iso][n] = cnPresent_(block[nameRows[n] - 2][colOffset]); });
       });
     }
-    return { ok: true, updated: new Date().toISOString(), realtors: names, dates: dates, attendance: attendance };
+    /* Only a good read is cached — caching a failure would pin the error for the
+       whole TTL, long after whatever caused it went away. */
+    var res = { ok: true, updated: new Date().toISOString(), realtors: names, dates: dates, attendance: attendance };
+    cachePut_('callnight_api', res); return res;
   } catch (e) { return { ok: false, error: String((e && e.message) || e), realtors: [], dates: [], attendance: {} }; }
 }
 
@@ -202,7 +223,7 @@ function fubRange_(key) {
   return { start: Utilities.formatDate(start, FUB_TZ, 'yyyy-MM-dd'), end: Utilities.formatDate(end, FUB_TZ, 'yyyy-MM-dd') };
 }
 function fubMtgSheet_() {
-  var sheets = ssFor_('deals').getSheets();
+  var sheets = sheetsFor_('deals');
   for (var i = 0; i < sheets.length; i++) {
     var nm = sheets[i].getName().trim().toUpperCase();
     if (nm === 'MEETINGS' || (nm.indexOf('MEETING') >= 0 && nm.indexOf('MONTHLY') < 0 && nm.indexOf('STAGE') < 0)) return sheets[i];
@@ -227,6 +248,7 @@ function fubCreditAgent_(agents) {
 function getMeetingsLeaderboard_(key) {
   try {
     key = lbKey_(key);
+    var ck = lbCacheKey_('mtg_api_', key), hit = ck ? cacheGet_(ck) : null; if (hit) return hit;
     var range = (key && key !== 'all') ? fubRange_(key) : null;
     var sh = fubMtgSheet_();
     if (!sh || sh.getLastRow() < 2) return { ok: false, error: 'Meetings tab not found or empty.', agents: [] };
@@ -251,7 +273,9 @@ function getMeetingsLeaderboard_(key) {
     }
     var list = []; for (var nm in counts) list.push({ name: nm, meetings: counts[nm] });
     list.sort(function (x, y) { return y.meetings - x.meetings; });
-    return { ok: true, period: key || 'all', agents: list };
+    var res = { ok: true, period: key || 'all', agents: list };
+    if (ck) cachePut_(ck, res);
+    return res;
   } catch (e) { return { ok: false, error: String((e && e.message) || e), agents: [] }; }
 }
 
@@ -278,6 +302,11 @@ function rankingsSlim_() {
 function getSearchIndex_() {
   var hit = cacheGet_('index_api'); if (hit) return hit.rows;
   var cities = getCities_().cities, out = [];
+  /* Warm every city's cached payload in one round trip before the loop reads them one
+     by one — same keys getProjects_ builds, so a hit here saves it the sheet read. */
+  var warm = [];
+  for (var w = 0; w < cities.length; w++) warm.push('proj_' + String(cities[w] || '').trim().toUpperCase());
+  cachePrefetch_(warm);
   for (var i = 0; i < cities.length; i++) {
     var c = cities[i], res;
     try { res = getProjects_(c); } catch (e) { res = { rows: [] }; }
@@ -292,17 +321,24 @@ function getSearchIndex_() {
   }
   cachePut_('index_api', { rows: out }); return out;
 }
+/* Both of these are small derivations of a very large index. Caching the derivation
+   too saves parsing that index (300KB+) on every Home and Cities load — the Cities
+   screen asks for both at once, so without this one visit parses it twice. */
 function getFocus_() {
+  var hit = cacheGet_('focus_api'); if (hit) return hit;
   var idx = getSearchIndex_(), out = [];
   for (var i = 0; i < idx.length; i++) if (idx[i].focus) out.push(idx[i]);
-  return { updated: new Date().toISOString(), count: out.length, rows: out };
+  var res = { updated: new Date().toISOString(), count: out.length, rows: out };
+  cachePut_('focus_api', res); return res;
 }
 function getCityCounts_() {
+  var hit = cacheGet_('citycounts_api'); if (hit) return hit;
   var idx = getSearchIndex_(), counts = {};
   for (var i = 0; i < idx.length; i++) { var c = idx[i].city; counts[c] = (counts[c] || 0) + 1; }
   var cities = getCities_().cities, out = [];
   for (var j = 0; j < cities.length; j++) out.push({ city: cities[j], count: counts[cities[j]] || 0 });
-  return { updated: new Date().toISOString(), count: out.length, cities: out };
+  var res = { updated: new Date().toISOString(), count: out.length, cities: out };
+  cachePut_('citycounts_api', res); return res;
 }
 
 
@@ -311,27 +347,32 @@ function getCityCounts_() {
    Resources and Concierge (Contractors) are just nav shortcuts in the app -> not
    embedded here. Cities are NOT shown on Home; only their focus projects are. */
 function findMainLoose_(keys) {
-  var sheets = ssFor_('main').getSheets();
+  var sheets = sheetsFor_('main');
   for (var i = 0; i < sheets.length; i++) { var n = sheets[i].getName().toUpperCase(); for (var k = 0; k < keys.length; k++) if (n.indexOf(keys[k]) >= 0) return sheets[i]; }
   return null;
 }
 function readLoose_(sh, spec, requireKey) {
   if (!sh || sh.getLastRow() < 2) return [];
-  var rng = sh.getDataRange(), disp = rng.getDisplayValues(), raw = rng.getValues(), rts = [], fmls = [];
-  try { rts = rng.getRichTextValues(); } catch (e) {}
-  try { fmls = rng.getFormulas(); } catch (e) {}
+  var disp = sh.getDataRange().getDisplayValues();
   var hdr = disp[0].map(function (h) { return String(h || '').trim().toUpperCase(); });
   function col(keys) { for (var c = 0; c < hdr.length; c++) for (var k = 0; k < keys.length; k++) if (hdr[c] === keys[k]) return c; for (var c2 = 0; c2 < hdr.length; c2++) for (var k2 = 0; k2 < keys.length; k2++) if (hdr[c2].indexOf(keys[k2]) >= 0) return c2; return -1; }
   var m = {}; for (var f in spec) m[f] = col(spec[f]);
   var dateIdx = (m.date !== undefined) ? m.date : -1;
+  var linkIdx = (m.link !== undefined) ? m.link : -1;
+  /* Only the link column needs hyperlink/formula data and only the date column needs
+     typed values; everything else comes from the displayed text. This runs on the Home
+     hot path, where it used to pull rich text for the entire Events sheet. */
+  var rts = colRange_(sh, linkIdx, disp.length, 'rich');
+  var fmls = colRange_(sh, linkIdx, disp.length, 'formula');
+  var raw = colRange_(sh, dateIdx, disp.length, 'value');
   var out = [];
   for (var r = 1; r < disp.length; r++) {
     var o = {}, has = false;
     for (var key in m) { var idx = m[key]; var v = idx >= 0 ? String(disp[r][idx] || '').trim() : ''; o[key] = v; if (key === requireKey && v) has = true; }
     if (requireKey && !has) continue;
     // link column: pull real hyperlink if present
-    if (m.link >= 0) { var u = cellUrl_(rts[r] ? rts[r][m.link] : null, fmls[r] ? fmls[r][m.link] : '', disp[r][m.link]); if (u) o.link = u; }
-    o.iso = dateIdx >= 0 ? dateISO_(raw[r] ? raw[r][dateIdx] : null, disp[r][dateIdx]) : '';
+    if (linkIdx >= 0) { var u = cellUrl_(rts[r] ? rts[r][0] : null, fmls[r] ? fmls[r][0] : '', disp[r][linkIdx]); if (u) o.link = u; }
+    o.iso = dateIdx >= 0 ? dateISO_(raw[r] ? raw[r][0] : null, disp[r][dateIdx]) : '';
     out.push(o);
   }
   return out;
@@ -432,21 +473,25 @@ function getMyLeads_(matchName) {
 function getMyMeetings_(matchName) {
   matchName = String(matchName || '').trim(); if (!matchName) return [];
   var sh = fubMtgSheet_(); if (!sh || sh.getLastRow() < 2) return [];
-  var rng = sh.getDataRange(), vals = rng.getDisplayValues(), raw = rng.getValues(), rts = [];
-  try { rts = rng.getRichTextValues(); } catch (e) {}
+  var vals = sh.getDataRange().getDisplayValues(), rts = [], raw = [];
   var hdr = vals[0].map(function (h) { return String(h || '').trim().toUpperCase(); });
   function col(keys) { for (var c = 0; c < hdr.length; c++) for (var k = 0; k < keys.length; k++) if (hdr[c] === keys[k]) return c; for (var c2 = 0; c2 < hdr.length; c2++) for (var k2 = 0; k2 < keys.length; k2++) if (hdr[c2].indexOf(keys[k2]) >= 0) return c2; return -1; }
   var m = { month: col(['MONTH']), date: col(['DATE']), time: col(['TIME']), agent: col(['AGENT', 'REALTOR']), lead: col(['LEAD', 'CLIENT', 'NAME']), url: col(['FUB URL', 'FUB', 'URL', 'LINK']), source: col(['SOURCE']), type: col(['TYPE']), outcome: col(['OUTCOME']), status: col(['STATUS']) };
   if (m.lead === m.url) m.url = -1;
+  /* My Deals is deliberately uncached (it is per-realtor), so this runs in full on
+     every load — all the more reason not to pull rich text for the whole sheet when
+     only the FUB link column needs it, and typed values only for the date column. */
+  rts = colRange_(sh, m.url, vals.length, 'rich');
+  raw = colRange_(sh, m.date, vals.length, 'value');
   function g(row, k) { return m[k] >= 0 ? String(row[m[k]] || '').trim() : ''; }
   var mn = matchName.toLowerCase(), out = [];
   for (var r = 1; r < vals.length; r++) {
     if (m.agent >= 0 && String(g(vals[r], 'agent')).toLowerCase() !== mn) continue;
-    var lead = g(vals[r], 'lead'), diso = m.date >= 0 ? dateISO_(raw[r] ? raw[r][m.date] : null, vals[r][m.date]) : '';
+    var lead = g(vals[r], 'lead'), diso = m.date >= 0 ? dateISO_(raw[r] ? raw[r][0] : null, vals[r][m.date]) : '';
     if (!lead && !diso) continue;
     var monthKey = g(vals[r], 'month'); if (!monthKey && diso) monthKey = diso.slice(0, 7);
     var url = g(vals[r], 'url');
-    if (m.url >= 0 && !/^https?:/i.test(url)) url = cellUrl_(rts[r] ? rts[r][m.url] : null, '', vals[r][m.url]);
+    if (m.url >= 0 && !/^https?:/i.test(url)) url = cellUrl_(rts[r] ? rts[r][0] : null, '', vals[r][m.url]);
     out.push({ month: monthKey, dateISO: diso, date: g(vals[r], 'date'), time: g(vals[r], 'time'), lead: lead, fub: url, source: g(vals[r], 'source'), type: g(vals[r], 'type'), outcome: g(vals[r], 'outcome'), status: g(vals[r], 'status') });
   }
   out.sort(function (a, b) { return (b.dateISO || '') < (a.dateISO || '') ? -1 : 1; });
@@ -485,7 +530,7 @@ function followupsFor_(deals, realtorName) {
   return { current: current, future: future };
 }
 function myTickets_(username) {
-  var u = String(username || '').toLowerCase(), sh = null, sheets = ssFor_('main').getSheets();
+  var u = String(username || '').toLowerCase(), sh = null, sheets = sheetsFor_('main');
   for (var i = 0; i < sheets.length && !sh; i++) if (sheets[i].getName().toUpperCase().indexOf('TICKET') >= 0) sh = sheets[i];
   var rows = readTableSmart_(sh);
   return rows.filter(function (t) { return (t.username || '').toLowerCase() === u; })

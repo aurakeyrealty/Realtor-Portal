@@ -52,6 +52,11 @@ const ctx = createContext({
       get: (k) => cache.get(k) ?? null,
       put: (k, v) => cache.set(k, v),
       remove: (k) => cache.delete(k),
+      // The server chunks oversized values and warms keys in batches, so the stub has
+      // to speak getAll/putAll too — without them those paths silently no-op here and
+      // the harness stops matching the service it stands in for.
+      getAll: (keys) => { const o = {}; for (const k of keys) if (cache.has(k)) o[k] = cache.get(k); return o; },
+      putAll: (map) => { for (const k of Object.keys(map)) cache.set(k, map[k]); },
     }),
   },
   Utilities: {

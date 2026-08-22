@@ -96,13 +96,84 @@ var ALLOW = {
 };
 
 /* ================= core helpers ================= */
-function ssFor_(key) { return SpreadsheetApp.openById(SHEETS[key] || SHEETS[DEFAULT_SHEET]); }
+/* openById is a service round trip, and a cold Home used to make 43 of them for the
+   same three spreadsheets. Apps Script globals live for exactly one execution, so
+   memoizing here is per-request: no staleness window, no cross-user leakage. */
+var __SS = {}, __SS_TABS = {};
+function ssKey_(key) { return SHEETS[key] ? key : DEFAULT_SHEET; }
+function ssFor_(key) { var k = ssKey_(key); return __SS[k] || (__SS[k] = SpreadsheetApp.openById(SHEETS[k])); }
+/* Same story for getSheets(): half a dozen readers each listed every tab separately. */
+function sheetsFor_(key) { var k = ssKey_(key); return __SS_TABS[k] || (__SS_TABS[k] = ssFor_(k).getSheets()); }
 function json_(o) { return ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON); }
 function isAllowed_(k, t) { return (ALLOW[k] || []).indexOf(t) !== -1; }
 function headerRowFor_(k, t, o) { if (o) return Math.max(1, parseInt(o, 10) || 1); return HEADER_ROWS[k + ':' + t] || 1; }
 var __FRESH = false;
-function cacheGet_(k) { if (__FRESH) return null; try { var h = CacheService.getScriptCache().get(k); return h ? JSON.parse(h) : null; } catch (e) { return null; } }
-function cachePut_(k, v) { try { var s = JSON.stringify(v); if (s.length < 95000) CacheService.getScriptCache().put(k, s, 900); } catch (e) {} }
+
+/* CacheService caps one value at 100KB. This used to mean anything bigger was dropped
+   on the floor -- silently, with no log -- so the most expensive payloads in the app
+   (the cross-city project index at 300KB+, the School Rankings tab at ~270KB) were
+   never cached at all and were rebuilt from scratch on every single request.
+
+   Oversized values are now split instead: key `k` holds a marker naming the part count
+   and `k|0..k|n-1` hold the pieces, written in one putAll so the marker never lands
+   without its parts. Values that fit are still stored whole, so the common case stays
+   a single round trip. A missing part reads as a miss -- parts expire together, but a
+   torn payload would be worse than a rebuild. */
+var CACHE_TTL = 900;               // seconds a cached payload stays valid
+/* Chunk size is in CHARACTERS while the service's cap is in BYTES, so this leaves room
+   for multi-byte content rather than sizing right up to the limit. */
+var CHUNK_CHARS = 45000;
+var CHUNK_MAX = 300;               // refuse anything past ~13M chars rather than thrash
+var CHUNK_TAG = '\u0000chunked:';  // JSON never starts with NUL, so this cannot collide
+
+function cachePutStr_(k, s, ttl) {
+  var c = CacheService.getScriptCache();
+  ttl = ttl || CACHE_TTL;
+  if (s.length <= CHUNK_CHARS) { c.put(k, s, ttl); return true; }
+  var n = Math.ceil(s.length / CHUNK_CHARS);
+  if (n > CHUNK_MAX) { Logger.log('cache: ' + k + ' too large to cache (' + s.length + ' chars)'); return false; }
+  var map = {};
+  for (var i = 0; i < n; i++) map[k + '|' + i] = s.substr(i * CHUNK_CHARS, CHUNK_CHARS);
+  map[k] = CHUNK_TAG + n;
+  c.putAll(map, ttl);
+  return true;
+}
+function cacheGetStr_(k) {
+  var c = CacheService.getScriptCache(), head = c.get(k);
+  if (head == null) return null;
+  if (head.lastIndexOf(CHUNK_TAG, 0) !== 0) return head;      // stored whole
+  var n = Number(head.slice(CHUNK_TAG.length));
+  if (!(n > 0)) return null;
+  var keys = [];
+  for (var i = 0; i < n; i++) keys.push(k + '|' + i);
+  var got = c.getAll(keys), s = '';
+  for (var j = 0; j < n; j++) { var part = got[k + '|' + j]; if (part == null) return null; s += part; }
+  return s;
+}
+
+/* Warm a batch of keys in one round trip. The city index reads ~40 cached payloads in
+   a loop, which was ~40 sequential CacheService.get calls; this collapses them into
+   one getAll. Entries are consumed once (see cacheGet_) so nothing can go stale behind
+   a write later in the same execution. Chunked values are skipped here and left to
+   cacheGet_, which knows how to reassemble them. */
+var __CMEMO = {};
+function cachePrefetch_(keys) {
+  if (__FRESH || !keys || !keys.length) return;
+  try {
+    var got = CacheService.getScriptCache().getAll(keys);
+    for (var i = 0; i < keys.length; i++) {
+      var k = keys[i], v = got[k];
+      if (v == null || v.lastIndexOf(CHUNK_TAG, 0) === 0) continue;
+      try { __CMEMO[k] = JSON.parse(v); } catch (e) {}
+    }
+  } catch (e) {}
+}
+function cacheGet_(k) {
+  if (__FRESH) return null;
+  if (Object.prototype.hasOwnProperty.call(__CMEMO, k)) { var m = __CMEMO[k]; delete __CMEMO[k]; return m; }
+  try { var h = cacheGetStr_(k); return h ? JSON.parse(h) : null; } catch (e) { return null; }
+}
+function cachePut_(k, v, ttl) { try { delete __CMEMO[k]; cachePutStr_(k, JSON.stringify(v), ttl); } catch (e) {} }
 /* The web app is anonymous, so `fresh` must not let a caller force unlimited full-sheet
    reads: at most one cache-busting rebuild per action per 30s. A user tapping Refresh
    still gets a rebuild; a loop cannot exhaust the script's quota. */
@@ -113,6 +184,22 @@ function freshAllowed_(action) {
     c.put(gk, '1', 30);
     return true;
   } catch (e) { return false; }
+}
+
+/* One column's worth of a getter, for readers that need rich text or formulas from a
+   single link column. getRichTextValues() is the slowest call the Sheets service
+   offers -- it serializes per-cell formatting runs -- so pulling it over an entire
+   sheet to read one column is the most expensive mistake a reader here can make.
+   getDataRange() always starts at A1, so a display-values column index maps to sheet
+   column index + 1. Returns [] for an absent column, which reads as "no link". */
+function colRange_(sh, colIdx, nRows, kind) {
+  if (!(colIdx >= 0) || !(nRows > 0)) return [];
+  try {
+    var rng = sh.getRange(1, colIdx + 1, nRows, 1);
+    if (kind === 'rich') return rng.getRichTextValues();
+    if (kind === 'formula') return rng.getFormulas();
+    return rng.getValues();
+  } catch (e) { return []; }
 }
 
 /* pull a URL from a cell: real hyperlink, run link, =HYPERLINK(), or bare URL */
@@ -147,12 +234,12 @@ function catsFromType_(type) {
   return out;
 }
 function findMainTab_(match) {
-  var sheets = ssFor_('main').getSheets(); match = String(match).toUpperCase();
+  var sheets = sheetsFor_('main'); match = String(match).toUpperCase();
   for (var i = 0; i < sheets.length; i++) if (sheets[i].getName().toUpperCase().replace(/\s+/g, '').indexOf(match) >= 0) return sheets[i];
   return null;
 }
 function dealsFind_(match) {
-  var sheets = ssFor_('deals').getSheets(); match = String(match).toUpperCase();
+  var sheets = sheetsFor_('deals'); match = String(match).toUpperCase();
   for (var i = 0; i < sheets.length; i++) if (sheets[i].getName().trim().toUpperCase().indexOf(match) >= 0) return sheets[i];
   return null;
 }

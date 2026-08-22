@@ -90,8 +90,10 @@ function crimeGetWin_() {
   if (cached && stamp && (Date.now() - Number(stamp) < CRIME_CACHE_MIN * 60 * 1000)) return cached;
   var data = crimeFetchJson_('window-city.json'); try { crimeWriteChunked_('crime_win', data); prop.setProperty('crime_win_stamp', String(Date.now())); } catch (e) {} return data;
 }
-function crimeWriteChunked_(prefix, obj) { var cache = CacheService.getScriptCache(), s = JSON.stringify(obj), size = 90000, n = Math.ceil(s.length / size); if (n > 300) return; var map = {}; for (var i = 0; i < n; i++) map[prefix + '_' + i] = s.substr(i * size, size); map[prefix + '_n'] = String(n); cache.putAll(map, CRIME_CACHE_MIN * 60); }
-function crimeReadChunked_(prefix) { var cache = CacheService.getScriptCache(), nStr = cache.get(prefix + '_n'); if (!nStr) return null; var n = Number(nStr), keys = []; for (var i = 0; i < n; i++) keys.push(prefix + '_' + i); var got = cache.getAll(keys), s = ''; for (var j = 0; j < n; j++) { var part = got[prefix + '_' + j]; if (part == null) return null; s += part; } try { return JSON.parse(s); } catch (e) { return null; } }
+/* Chunking now lives in Core.js (cachePutStr_/cacheGetStr_) and every oversized value
+   in the app goes through it, so these are thin wrappers over the shared pair. */
+function crimeWriteChunked_(prefix, obj) { try { cachePutStr_(prefix, JSON.stringify(obj), CRIME_CACHE_MIN * 60); } catch (e) {} }
+function crimeReadChunked_(prefix) { var s = cacheGetStr_(prefix); if (!s) return null; try { return JSON.parse(s); } catch (e) { return null; } }
 
 /* ---------------- SCHOOL ADDRESS FINDER (Peel/Halton/Durham/York) ---------------- */
 var FS_YEAR = 2026, FS_SPS_BASE = 'https://api.spsplus.ca/api/v3/Search', FS_YORK_BASE = 'https://schoollocator.yrdsb.ca/ws/api';
@@ -194,9 +196,9 @@ function fsPrograms_(program, name) { var s = (String(program || '') + ' ' + Str
 function fsNormName_(s) { return String(s || '').toUpperCase().replace(/\b(CATHOLIC|PUBLIC|ELEMENTARY|SECONDARY|SCHOOL|SENIOR|JUNIOR|SR|JR|MIDDLE|ACADEMY|P\.?S\.?|C\.?S\.?|S\.?S\.?|E\.?S\.?|C\.?I\.?|H\.?S\.?)\b/g, ' ').replace(/[^A-Z0-9]+/g, ' ').trim(); }
 function fsAttachRank_(schools) { if (!schools || !schools.length) return; var rank = {}; try { var res = readTab_('School Rankings', 'main', ''); var rows = (res && res.rows) ? res.rows : []; for (var i = 0; i < rows.length; i++) { var nm = rows[i].SCHOOL || rows[i].School || rows[i].school; var k = fsNormName_(nm); if (k && !rank[k]) rank[k] = rows[i]; } } catch (e) {} for (var j = 0; j < schools.length; j++) { var m = rank[fsNormName_(schools[j].school)]; if (m) { schools[j].rank = m.RANK || m.rank || ''; schools[j].score = m.SCORE || m.score || ''; schools[j].community = m.COMMUNITY || m.community || ''; if (!schools[j].city) schools[j].city = m.CITY || m.city || ''; } } }
 
-/* Big-cache helpers for the school directory (reuse crime chunking) */
-function cacheWriteBig_(key, str, ttl) { var cache = CacheService.getScriptCache(), size = 90000, n = Math.ceil(str.length / size); if (n > 300) return; var map = {}; for (var i = 0; i < n; i++) map[key + '_' + i] = str.substr(i * size, size); map[key + '_n'] = String(n); cache.putAll(map, ttl || 21600); }
-function cacheReadBig_(key) { var cache = CacheService.getScriptCache(), nStr = cache.get(key + '_n'); if (!nStr) return null; var n = Number(nStr), keys = []; for (var i = 0; i < n; i++) keys.push(key + '_' + i); var got = cache.getAll(keys), s = ''; for (var j = 0; j < n; j++) { var part = got[key + '_' + j]; if (part == null) return null; s += part; } return s; }
+/* Big-cache helpers for the school directory — same shared chunking as everything else. */
+function cacheWriteBig_(key, str, ttl) { try { cachePutStr_(key, str, ttl || 21600); } catch (e) {} }
+function cacheReadBig_(key) { return cacheGetStr_(key); }
 
 /* =====================================================================
    BASEMENT CHECK — municipal registration lookup (agent-facing)

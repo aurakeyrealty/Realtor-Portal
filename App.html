@@ -11,7 +11,14 @@
 <meta name="theme-color" content="#0E1A22">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;800&family=IBM+Plex+Mono:wght@400&family=IBM+Plex+Sans:wght@400;600&display=swap" rel="stylesheet">
+<!-- The font stylesheet lives on a third origin, inside an already-slow Apps Script
+     sandbox, and a plain rel=stylesheet blocks first paint until it answers. Loading it
+     as print media and promoting it on load takes it off the critical path; the faces
+     already carry display=swap, so text has always painted in the fallback first and
+     swapped -- this only stops the wait for the stylesheet itself. -->
+<link rel="stylesheet" media="print" onload="this.media='all';this.onload=null"
+      href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;800&family=IBM+Plex+Mono:wght@400&family=IBM+Plex+Sans:wght@400;600&display=swap">
+<noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;800&family=IBM+Plex+Mono:wght@400&family=IBM+Plex+Sans:wght@400;600&display=swap"></noscript>
 <?!= include('Styles') ?>
 </head>
 <body>

@@ -45,12 +45,12 @@ function readTableSmart_(sh) {
 
 /* ================= city projects (getProjects) ================= */
 function resolveCity_(city) {
-  var want = String(city || '').trim().toUpperCase(), sheets = ssFor_('main').getSheets();
+  var want = String(city || '').trim().toUpperCase(), sheets = sheetsFor_('main');
   for (var i = 0; i < sheets.length; i++) if (sheets[i].getName().trim().toUpperCase() === want) return sheets[i];
   return null;
 }
-function buildColMap_(sh) {
-  var headers = sh.getRange(HEADER_ROW, 1, 1, sh.getLastColumn()).getDisplayValues()[0], map = {};
+function buildColMap_(sh, lastCol) {
+  var headers = sh.getRange(HEADER_ROW, 1, 1, lastCol || sh.getLastColumn()).getDisplayValues()[0], map = {};
   for (var f in FIELD_KEYS) {
     var keys = FIELD_KEYS[f];
     for (var c = 0; c < headers.length; c++) {
@@ -70,7 +70,7 @@ function getProjects_(city) {
   if (!sh) return { error: 'city tab "' + city + '" not found' };
   var lastRow = sh.getLastRow();
   if (lastRow < DATA_START) return { city: city, count: 0, rows: [] };
-  var map = buildColMap_(sh), lastCol = sh.getLastColumn(), numRows = lastRow - DATA_START + 1;
+  var lastCol = sh.getLastColumn(), map = buildColMap_(sh, lastCol), numRows = lastRow - DATA_START + 1;
   var disp = sh.getRange(DATA_START, 1, numRows, lastCol).getDisplayValues();
   var bR = null, bF = null, dR = null, dF = null, wR = null, wF = null;
   if (map.broker)  { var b = sh.getRange(DATA_START, map.broker, numRows, 1); bR = b.getRichTextValues(); bF = b.getFormulas(); }
@@ -100,8 +100,9 @@ function getProjects_(city) {
 function getBuilders_() {
   var hit = cacheGet_('builders_api'); if (hit) { hit.cached = true; return hit; }
   var sh = findMainTab_('BUILDER');
-  if (!sh || sh.getLastRow() < 2) return { count: 0, rows: [] };
+  if (!sh) return { count: 0, rows: [] };
   var lastRow = sh.getLastRow(), lastCol = sh.getLastColumn();
+  if (lastRow < 2) return { count: 0, rows: [] };
   var hdr = sh.getRange(1, 1, 1, lastCol).getDisplayValues()[0].map(function (h) { return String(h || '').trim().toUpperCase(); });
   function colx(incl, excl) {
     for (var c = 0; c < hdr.length; c++) {
@@ -150,7 +151,7 @@ function getContractors_() {
 /* ================= contacts (Home) ================= */
 function getContacts_() {
   var hit = cacheGet_('contacts_api'); if (hit) { hit.cached = true; return hit; }
-  var sheets = ssFor_('main').getSheets(), sh = null;
+  var sheets = sheetsFor_('main'), sh = null;
   for (var i = 0; i < sheets.length && !sh; i++) { var n = sheets[i].getName().trim().toUpperCase(); if (n === 'CONTACTS' || n === 'CONTACT' || n === 'HOME') sh = sheets[i]; }
   for (var j = 0; j < sheets.length && !sh; j++) { var n2 = sheets[j].getName().toUpperCase(); if (n2.indexOf('CONTACT') >= 0 || n2.indexOf('HOME') >= 0) sh = sheets[j]; }
   if (!sh || sh.getLastRow() < 2) return { count: 0, rows: [] };
@@ -175,7 +176,7 @@ function getContacts_() {
 /* ================= resources (grouped) ================= */
 function getResources_() {
   var hit = cacheGet_('resources_api'); if (hit) return hit;
-  var sheets = ssFor_('main').getSheets(), sh = null;
+  var sheets = sheetsFor_('main'), sh = null;
   for (var i = 0; i < sheets.length; i++) if (sheets[i].getName().toUpperCase().indexOf('RESOURCE') >= 0) { sh = sheets[i]; break; }
   if (!sh || sh.getLastRow() < 2) return { categories: [] };
   var vals = sh.getDataRange().getDisplayValues();
@@ -248,17 +249,37 @@ function getWebsites_() {
 /* ================= cities (tab names that look like project tabs) ================= */
 function getCities_() {
   var hit = cacheGet_('cities_api'); if (hit) return hit;
-  var sheets = ssFor_('main').getSheets(), cities = [];
+  var sheets = sheetsFor_('main'), cities = [], partial = false;
   for (var i = 0; i < sheets.length; i++) {
     var sh = sheets[i];
-    if (sh.getLastRow() < HEADER_ROW || sh.getLastColumn() < 2) continue;
-    var ab = sh.getRange(HEADER_ROW, 1, 1, 2).getValues()[0];
+    /* This runs over every tab in the spreadsheet just to read two header cells, so it
+       used to cost three round trips per tab (getLastRow + getLastColumn + getValues).
+       Reading the two cells directly costs one. */
+    var ab;
+    try { ab = sh.getRange(HEADER_ROW, 1, 1, 2).getValues()[0]; }
+    catch (e) {
+      /* A tab too small to hold those cells is a genuine skip -- that is what the
+         dimension checks used to buy. Anything else is a transient service error, and
+         Sheets throws plenty of those in a loop this long. Treating the two alike
+         would drop a real city and then cache the gap for an hour, so confirm which
+         one this is (only on the rare error path) and refuse to cache if the list
+         might be short. */
+      var small = false;
+      try { small = (sh.getLastRow() < HEADER_ROW || sh.getLastColumn() < 2); } catch (e2) {}
+      if (!small) partial = true;
+      continue;
+    }
     var a = String(ab[0] || '').trim().toUpperCase(), b = String(ab[1] || '').trim().toUpperCase();
     if (a.indexOf('PROJECT') >= 0 && b.indexOf('BUILDER') >= 0) cities.push(sh.getName().trim());
   }
   cities.sort();
   var res = { updated: new Date().toISOString(), count: cities.length, cities: cities };
-  cachePut_('cities_api', res); return res;
+  /* Tab names change far less often than their contents, and rediscovering them is the
+     most expensive part of a cold index build. An added city shows up within the hour,
+     or immediately via Refresh, which bypasses the cache. A list built while a tab was
+     failing is served but never cached, so the gap lasts one request, not an hour. */
+  if (!partial) cachePut_('cities_api', res, 3600);
+  return res;
 }
 
 /* ================= LOGIN =================
