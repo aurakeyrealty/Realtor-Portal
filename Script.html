@@ -40,12 +40,38 @@ function isAuthErr(d){ return !!(d&&d.ok===false&&/\b(login|token|auth)\b/i.test
 function call(action,params){
   var p=params||{};
   if(action!=='login'&&TOKEN&&p.auth==null){ var q={}; for(var k in p) q[k]=p[k]; q.auth=TOKEN; p=q; }
+  function onData(d){ if(action!=='login'&&isAuthErr(d)) sessionLost(); return d; }   // central re-gate
+  if(window.AK_EXEC) return callHttp(action,p).then(onData);
   return new Promise(function(res,rej){
-    google.script.run.withSuccessHandler(function(d){
-      if(action!=='login'&&isAuthErr(d)) sessionLost();   // central re-gate
-      res(d);
-    }).withFailureHandler(rej).app(action,p);
+    google.script.run.withSuccessHandler(function(d){ res(onData(d)); }).withFailureHandler(rej).app(action,p);
   });
+}
+/* The same app() dispatcher over HTTP, for the installed app. Everything is a POST
+   with a text/plain body: that is a CORS "simple request", so there is no preflight
+   (Apps Script cannot answer one), and neither the password nor the session token
+   ever rides a query string into the execution log.
+
+   fetch resolves on far more than google.script.run does, and the cache layer
+   below treats a rejection as "offline" and a resolution as data worth keeping.
+   So anything that is not a JSON reply from our server -- an HTTP error, the HTML
+   sign-in page Google serves when a deployment is re-scoped, a body that will not
+   parse -- is rejected here, and the offline path stays the offline path. */
+function callHttp(action,p){
+  var body={}; for(var k in p) body[k]=p[k]; body.action=action;
+  /* A request that never settles is the one failure the cache cannot help with: the
+     saved copy is only read on rejection, so a stalled socket (a phone waking from
+     the background onto a dead connection) would hold a full cache behind skeletons
+     for as long as the OS lets it hang. Cut it off and let the offline path run. */
+  var ac=(typeof AbortController!=='undefined')?new AbortController():null;
+  var timer=ac?setTimeout(function(){ ac.abort(); },15000):null;
+  function settle(){ if(timer) clearTimeout(timer); }
+  return fetch(window.AK_EXEC,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify(body),redirect:'follow',signal:ac?ac.signal:undefined})
+    .then(function(r){
+      if(!r.ok) throw new Error('HTTP '+r.status);
+      if(!/json/i.test(r.headers.get('content-type')||'')) throw new Error('not JSON');
+      return r.json();
+    })
+    .then(function(d){ settle(); return d; }, function(e){ settle(); throw (e&&e.name==='AbortError')?new Error('timed out'):e; });
 }
 /* read-through cache: instant back-navigation, offline fallback, manual refresh */
 var MEM={}, FRESH=false, RENDER_FRESH=false, CACHE_TTL=600000, RENDER_SEQ=0;
@@ -213,12 +239,12 @@ function restoreScroll(y){
 }
 function fail(e){ if(e===STALE_ERR) return; $('content').innerHTML='<div class="err">Could not load — try again.<br><span style="color:var(--mute)">'+esc((e&&e.message)||e||'')+'</span></div>'; }
 
-function kv(k,v){ if(v==null||v===''||typeof v==='object')return''; if(isUrl(v))return '<div class="kv"><span class="kk">'+esc(k)+'</span><a class="vv" href="'+esc(v)+'" target="_blank">'+esc(host(v))+'</a></div>'; return '<div class="kv"><span class="kk">'+esc(k)+'</span><span class="vv">'+esc(v)+'</span></div>'; }
+function kv(k,v){ if(v==null||v===''||typeof v==='object')return''; if(isUrl(v))return '<div class="kv"><span class="kk">'+esc(k)+'</span><a class="vv" href="'+esc(v)+'" target="_blank" rel="noopener noreferrer">'+esc(host(v))+'</a></div>'; return '<div class="kv"><span class="kk">'+esc(k)+'</span><span class="vv">'+esc(v)+'</span></div>'; }
 /* a spreadsheet cell is untrusted input: esc() stops it breaking out of the
    attribute but leaves "javascript:..." intact, so only http(s) may become an
    href — the token in localStorage is the whole app's key now */
 function safeUrl(u){ return isUrl(u)?String(u):''; }
-function linkBtn(label,url){ var u=safeUrl(url); return u?'<a class="lnk" href="'+esc(u)+'" target="_blank">'+esc(label)+'</a>':''; }
+function linkBtn(label,url){ var u=safeUrl(url); return u?'<a class="lnk" href="'+esc(u)+'" target="_blank" rel="noopener noreferrer">'+esc(label)+'</a>':''; }
 function telBtn(p){ p=String(p||'').trim(); return p?'<a class="lnk" href="tel:'+esc(p.replace(/[^0-9+]/g,''))+'">Call '+esc(p)+'</a>':''; }
 /* a sheet cell can hold several addresses ("a@x.com, b@y.com"); a raw comma in
    a mailto is malformed, so link each address on its own */
@@ -1558,7 +1584,7 @@ function paintWebsites(){
     });
     shown+=items.length;
     if(!items.length) return;
-    h+='<div class="sec-h">'+esc(s.section)+'</div><div class="card">'+items.map(function(it){ return '<div class="kv"><a class="vv" href="'+esc(safeUrl(it.url))+'" target="_blank">'+esc(it.name||host(it.url))+'</a></div>'; }).join('')+'</div>';
+    h+='<div class="sec-h">'+esc(s.section)+'</div><div class="card">'+items.map(function(it){ return '<div class="kv"><a class="vv" href="'+esc(safeUrl(it.url))+'" target="_blank" rel="noopener noreferrer">'+esc(it.name||host(it.url))+'</a></div>'; }).join('')+'</div>';
   });
   pageCount('websites',shown,total,'site','sites');
   $('webOut').innerHTML=h||'<div class="empty">Nothing matches.</div>';
@@ -1676,7 +1702,7 @@ function toast(msg,ms){
 function loadMyDeals(){
   if(!TOKEN){ showGate(); return; }
   freshOnly(call('mydeals',{auth:TOKEN})).then(function(d){
-    if(!d||d.ok===false){ if(/login|token|auth/i.test((d&&d.error)||'')){ sessionLost(); return; } $('content').innerHTML='<div class="err">'+esc((d&&d.error)||'Could not load.')+'</div>'; return; }
+    if(!d||d.ok===false){ if(isAuthErr(d)){ sessionLost(); return; } $('content').innerHTML='<div class="err">'+esc((d&&d.error)||'Could not load.')+'</div>'; return; }
     renderMyDeals(d);
   }).catch(fail);
 }
@@ -1819,7 +1845,7 @@ function loadBootcamp(){
 function drawWeek(w){
   $('wkRes').innerHTML=skel(3);
   freshOnly(call('bootcamp',{auth:TOKEN,week:w})).then(function(d){
-    if(!d||d.ok===false){ if(/login|token|auth/i.test((d&&d.error)||'')){ sessionLost(); return; } $('wkRes').innerHTML='<div class="empty">'+esc((d&&d.error)||'No content.')+'</div>'; return; }
+    if(!d||d.ok===false){ if(isAuthErr(d)){ sessionLost(); return; } $('wkRes').innerHTML='<div class="empty">'+esc((d&&d.error)||'No content.')+'</div>'; return; }
     var plan=d.plan||{}, days=plan.days||[];
     if(!days.length){ $('wkRes').innerHTML='<div class="empty">'+esc(plan.empty?'No content for this week yet.':'No content for this week.')+'</div>'; return; }
     $('wkRes').innerHTML=days.map(function(day){
@@ -1832,24 +1858,30 @@ function drawWeek(w){
 }
 function signOut(){
   TOKEN=null; WHO=null; tokenClear(); paintNavUser();
-  MEM={};                              // nothing personal is cached today (My Deals
-                                       // and Bootcamp bypass the cache) — this keeps
-                                       // it true if that ever changes
+  forgetData();
   $('content').innerHTML='';
   showGate();
+}
+/* Drop every cached payload with the session. Nothing personal is cached today (My
+   Deals and Bootcamp bypass the cache), but an installed app's storage outlives a
+   browser tab by months, and the next person to sign in on this phone must not
+   see the last one's screens while offline. */
+function forgetData(){
+  MEM={};
+  try{ Object.keys(localStorage).forEach(function(k){ if(k.indexOf('akc_')===0) localStorage.removeItem(k); }); }catch(e){}
 }
 /* the server refused a token we thought was good: expired, revoked, or the
    signing key changed under us */
 function sessionLost(){
   tokenClear(); TOKEN=null; WHO=null; paintNavUser();
-  MEM={}; $('content').innerHTML='';        // body.gated only hides the shell in CSS
+  forgetData(); $('content').innerHTML='';  // body.gated only hides the shell in CSS
   showGate('Your session expired — please sign in again.');
 }
 
 function copyText(t){ try{ if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(t);return;} }catch(e){} var ta=document.createElement('textarea');ta.value=t;ta.style.position='fixed';ta.style.opacity='0';document.body.appendChild(ta);ta.select();try{document.execCommand('copy');}catch(e){}document.body.removeChild(ta); }
 function installHtml(){
   try{ var st=window.navigator.standalone||(window.matchMedia&&window.matchMedia('(display-mode: standalone)').matches); if(st) return ''; if(localStorage.getItem('ak_install')==='1') return ''; }catch(e){}
-  var ua=navigator.userAgent||'', tip=/iPhone|iPad|iPod/i.test(ua)?'Tap Share, then “Add to Home Screen”.':(/Android/i.test(ua)?'Tap the ⋮ menu, then “Add to Home screen” — it opens in your browser.':'Open on your phone to add it to your home screen.');
+  var ua=navigator.userAgent||'', tip=/iPhone|iPad|iPod/i.test(ua)?'Tap Share, then “Add to Home Screen”.':(/Android/i.test(ua)?'Tap the ⋮ menu, then “Install app” or “Add to Home screen”.':'Open on your phone to add it to your home screen.');
   return '<div class="install" id="inst"><button class="x" onclick="dismissInstall()" aria-label="Dismiss">'+ico('x',15)+'</button><b>Add to your home screen.</b> '+tip+'</div>';
 }
 function dismissInstall(){ try{localStorage.setItem('ak_install','1');}catch(e){} var el=$('inst'); if(el)el.style.display='none'; }
@@ -1900,7 +1932,7 @@ function boot(){
   call('session',{auth:stored}).then(function(r){
     if(r&&r.ok&&r.token){ TOKEN=r.token; tokenSet(TOKEN,WHO); hideGate(); paintNavUser(); route(); return; }
     tokenClear();
-  }).catch(function(){});
+  }).catch(function(){ showGate('You’re offline — sign in once you’re connected.'); });
 }
 /* Verified behind the render, not in front of it: blocking would put a spinner
    over an app built to work offline, and a refused token is torn down a moment
@@ -1911,7 +1943,10 @@ function verifySession(tok){
       if(r.token){ TOKEN=r.token; tokenSet(TOKEN,WHO); }   // sliding: the clock restarts
       return;
     }
-    sessionLost();
+    /* Only a refusal of the token itself ends the session. Any other non-ok reply
+       means the server is unwell, not that the token is -- signing the whole team
+       out over that would be the worse failure. */
+    if(isAuthErr(r)) sessionLost();
   }).catch(function(){ /* offline — stay in; the cached screens still work */ });
 }
 boot();

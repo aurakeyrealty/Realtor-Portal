@@ -31,7 +31,9 @@ catch (e) { ok(false, 'load failed: ' + e.message); process.exit(1); }
 // ---- 2. every action in the dispatch table resolves to a real function ----
 const core = readFileSync(DIR + 'Core.js', 'utf8');
 const appBody = core.slice(core.indexOf('function app(action, p)'));
-const targets = [...appBody.matchAll(/case '([a-zA-Z]+)':\s*(?:return|)\s*([a-zA-Z_0-9]+)\(/g)];
+// A case may return the call directly or wrap it in an object literal
+// (`return { ok: true, items: fsSuggest_(...) }`); both shapes name a target.
+const targets = [...appBody.matchAll(/case '([a-zA-Z]+)':\s*(?:return|)\s*(?:\{[^}]*?)?\b([a-zA-Z_][a-zA-Z_0-9]*)\(/g)];
 const missing = targets.filter(m => typeof ctx[m[2]] !== 'function').map(m => `${m[1]} -> ${m[2]}`);
 ok(missing.length === 0, `all ${targets.length} app() dispatch targets are defined${missing.length ? ': MISSING ' + missing.join(', ') : ''}`);
 
@@ -163,6 +165,18 @@ function fakeSheet(rows, links) {
   ok(!rows.some((r) => String(r.link).includes('WRONG-COLUMN')), 'readLoose_: does NOT pick up a link from a neighbouring column');
   ok(rows[0] && rows[0].iso === '2026-09-01', `readLoose_: date column still resolves (got ${rows[0] && rows[0].iso})`);
   ok(sh.__richWidths.every((w) => w === 1), `readLoose_: rich text fetched one column at a time (widths ${sh.__richWidths.join(',')})`);
+}
+
+// ---- clasp must never push the PWA bundle or the dev harness as server code ----
+// .clasp.json has rootDir "" and skipSubdirectories false, so every .js/.html/.json
+// in the repo is a candidate. www/app.js in the server's global scope would throw
+// on `document` before doGet could answer — and the guard lives in .claspignore,
+// which git carries per branch while the generated www/ lingers across checkouts.
+{
+  const ignorePath = DIR + '.claspignore';
+  ok(existsSync(ignorePath), '.claspignore exists');
+  const ignore = existsSync(ignorePath) ? readFileSync(ignorePath, 'utf8') : '';
+  for (const dir of ['www/**', 'dev/**', 'assets/**']) ok(ignore.includes(dir), `.claspignore covers ${dir}`);
 }
 
 console.log(fail ? `\n${fail} CHECK(S) FAILED` : '\nALL CHECKS PASSED');

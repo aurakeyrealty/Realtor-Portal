@@ -106,6 +106,7 @@ function ssFor_(key) { var k = ssKey_(key); return __SS[k] || (__SS[k] = Spreads
 function sheetsFor_(key) { var k = ssKey_(key); return __SS_TABS[k] || (__SS_TABS[k] = ssFor_(k).getSheets()); }
 function json_(o) { return ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON); }
 function isAllowed_(k, t) { return (ALLOW[k] || []).indexOf(t) !== -1; }
+function allowedTabs_() { var o = {}; Object.keys(ALLOW).forEach(function (k) { o[k] = ALLOW[k].slice(); }); return o; }
 function headerRowFor_(k, t, o) { if (o) return Math.max(1, parseInt(o, 10) || 1); return HEADER_ROWS[k + ':' + t] || 1; }
 var __FRESH = false;
 
@@ -264,12 +265,9 @@ function doGet(e) {
   // and every proxy on the way. These two are POST-only; doPost carries them.
   if (a === 'login' || a === 'session') return json_({ ok: false, error: 'use POST for ' + a });
 
-  // doGet-only actions — gated like everything else (see requireAuth_).
-  // (bootcampreview now lives in app()'s switch so an admin token never rides a GET.)
-  if (a === 'tabs') { if (!requireAuth_(p)) return json_({ ok: false, error: 'login required' }); var o = {}; Object.keys(ALLOW).forEach(function (k) { o[k] = ALLOW[k].slice(); }); return json_({ sheets: o }); }
-  if (a === 'tab')   { if (!requireAuth_(p)) return json_({ ok: false, error: 'login required' }); return json_(readTab_(p.name || '', p.sheet || '', p.headerRow || '')); }
-
-  // Everything else goes through app()'s switch — ONE dispatch table, no drift.
+  // Everything goes through app()'s switch — ONE dispatch table, no drift, and
+  // the same set of actions whether the caller used GET, POST or the HtmlService
+  // bridge. (tabs/tab/bootcampreview used to be doGet-only; they live there now.)
   // Every action there requires a valid token except login/session.
   return json_(app(a, p));
 }
@@ -340,6 +338,8 @@ function app(action, p) {
     case 'fsschools':     return fsSchools_(p.board, p.id || p.addressId, p.label || p.addressLabel, p.num || p.houseNumber);
     case 'login':         return handleLogin_(p);
     case 'session':       return handleSession_(p);
+    case 'tabs':          return { sheets: allowedTabs_() };
+    case 'tab':           return readTab_(p.name || '', p.sheet || '', p.headerRow || '');
     case 'mydeals':       return getMyDealsPayload_(p);
     case 'bootcamp':      return getBootcampPayload_(p);
     case 'bootcampreview':return bootcampReview_(p);                  // admin token only (checked inside)
