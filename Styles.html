@@ -199,7 +199,7 @@ a.rowitem{text-decoration:none;box-sizing:border-box}
    auto rather than hidden purely for the software keyboard: when iOS shrinks
    the visual viewport the card must still be reachable. Content that fits
    produces no scrollbar and no scroll, which is the case that matters. */
-body.gated{overflow:hidden}
+body.gated{overflow:hidden;background:#0E1A22}
 body.gated .phone,body.gated .toTop,body.gated .drawer,body.gated .scrim{display:none}
 .gate{position:fixed;inset:0;z-index:60;overflow-y:auto;overscroll-behavior:contain;
   background:#0E1A22;color:#fff;
@@ -217,7 +217,22 @@ body.gated .phone,body.gated .toTop,body.gated .drawer,body.gated .scrim{display
 .gate-inner{position:relative;min-height:100%;box-sizing:border-box;
   width:100%;max-width:26rem;margin:0 auto;
   display:flex;flex-direction:column;justify-content:space-between;
-  padding:max(58px,env(safe-area-inset-top,0px)) 16px max(46px,calc(env(safe-area-inset-bottom,0px) + 12px))}
+  padding:58px 16px 46px}
+/* Longhand, and behind @supports, on purpose. env() nested in calc() nested in
+   max() inside the padding SHORTHAND is fragile: a parser that chokes on any one
+   part drops the whole declaration, and the screen loses all four sides at once --
+   which is exactly the logo sitting flush against the Dynamic Island. Split up,
+   the worst case is one axis falling back to the fixed value above.
+
+   The added gap is deliberate, not padding-on-padding: the design's flat 58px was
+   measured in a frame with no status bar, so on a real notched phone the safe-area
+   inset alone puts the monogram hard against the island. */
+@supports (padding-top:env(safe-area-inset-top)){
+  .gate-inner{
+    padding-top:max(58px,calc(env(safe-area-inset-top) + 18px));
+    padding-bottom:max(46px,calc(env(safe-area-inset-bottom) + 20px));
+  }
+}
 .gate-inner>*{flex-shrink:0}
 
 /* brand block */
@@ -300,7 +315,7 @@ body.gated .phone,body.gated .toTop,body.gated .drawer,body.gated .scrim{display
 @media(max-height:700px){
   .gate-trust{display:none}
   .gate-t{margin-top:12px}
-  .gate-inner{padding-top:max(28px,env(safe-area-inset-top,0px))}
+  .gate-inner{padding-top:max(28px,calc(env(safe-area-inset-top,0px) + 8px))}
 }
 
 /* welcome toast — a sign-in only moment, so it announces itself and leaves */
