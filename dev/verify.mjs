@@ -1,6 +1,6 @@
 /* Pre-push verification: load the four server files the way Apps Script does —
    concatenated into ONE global scope — with stubbed platform globals. */
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import vm from 'node:vm';
 
 const DIR = '/Users/sarathkumar/Projects/2Creative/Realtor-Portal/';
@@ -177,6 +177,27 @@ function fakeSheet(rows, links) {
   ok(existsSync(ignorePath), '.claspignore exists');
   const ignore = existsSync(ignorePath) ? readFileSync(ignorePath, 'utf8') : '';
   for (const dir of ['www/**', 'dev/**', 'assets/**']) ok(ignore.includes(dir), `.claspignore covers ${dir}`);
+
+  /* Naming the known offenders only guards the ones that existed when the list
+     was written. A design handoff dropped in the repo root shipped a browser
+     bundle and a support.js, neither of them ignored, and clasp listed both as
+     server files -- top-level DOM code that would have thrown on every request.
+     So the rule is inverted here: anything in the root that is not a server file
+     has to be ignored explicitly, and a new folder fails this check the day it
+     appears rather than the day someone pushes. */
+  const SERVER_FILES = ['App.html', 'Styles.html', 'Script.html',
+                        'Core.js', 'Sheets.js', 'Team.js', 'External.js', 'appsscript.json'];
+  const stray = readdirSync(DIR)
+    .filter((n) => !n.startsWith('.'))
+    .filter((n) => !SERVER_FILES.includes(n))
+    .filter((n) => !ignore.split('\n').some((line) => {
+      line = line.trim();
+      if (!line || line.startsWith('#')) return false;
+      return line === n || line.startsWith(n + '/') || line.startsWith(n + '**');
+    }));
+  ok(stray.length === 0,
+     stray.length ? `every non-server path is ignored by clasp (NOT ignored: ${stray.join(', ')})`
+                  : 'every non-server path is ignored by clasp');
 }
 
 console.log(fail ? `\n${fail} CHECK(S) FAILED` : '\nALL CHECKS PASSED');

@@ -120,7 +120,14 @@ var __FRESH = false;
    without its parts. Values that fit are still stored whole, so the common case stays
    a single round trip. A missing part reads as a miss -- parts expire together, but a
    torn payload would be worse than a rebuild. */
-var CACHE_TTL = 900;               // seconds a cached payload stays valid
+/* Six hours -- the CacheService maximum -- not fifteen minutes. Home transitively
+   needs the 60-tab search index, so whoever arrives after the cache lapses pays a
+   ~60s rebuild that the client abandons long before it lands. At 900s that was
+   every realtor, every morning, and again after any quiet quarter of an hour.
+   Paired with warmCache() below, which rebuilds on a timer inside this window, a
+   cold cache stops being something a person ever meets. Refresh still forces a
+   rebuild for anyone who has just edited a sheet and wants it now. */
+var CACHE_TTL = 21600;             // seconds a cached payload stays valid
 /* Chunk size is in CHARACTERS while the service's cap is in BYTES, so this leaves room
    for multi-byte content rather than sizing right up to the limit. */
 var CHUNK_CHARS = 45000;
@@ -195,6 +202,31 @@ function cachedBuild_(key, build, ttl) {
     return built;
   } finally { if (lock) { try { lock.releaseLock(); } catch (e) {} } }
 }
+/* ---- scheduled warm-up ---------------------------------------------------
+   The expensive build happens on the script's own time instead of in front of
+   somebody waiting for Home. __FRESH is set deliberately: re-reading a cache
+   that is about to expire would warm nothing, so this forces the rebuild and
+   overwrites the entry with a full TTL ahead of it.
+
+   Run installWarmTrigger() once from the editor to schedule it. Every four
+   hours against a six-hour TTL leaves two hours of margin for a skipped or
+   failed run, at roughly six minutes of runtime a day. */
+function warmCache() {
+  __FRESH = true;
+  try { getHome_(); } catch (e) {}          // pulls the search index, focus and contacts
+  try { getCities_(); } catch (e) {}
+  try { getCityCounts_(); } catch (e) {}
+  __FRESH = false;
+}
+function installWarmTrigger() {
+  var existing = ScriptApp.getProjectTriggers();
+  for (var i = 0; i < existing.length; i++) {
+    if (existing[i].getHandlerFunction() === 'warmCache') ScriptApp.deleteTrigger(existing[i]);
+  }
+  ScriptApp.newTrigger('warmCache').timeBased().everyHours(4).create();
+  return 'warmCache scheduled every 4 hours';
+}
+
 /* The web app is anonymous, so `fresh` must not let a caller force unlimited full-sheet
    reads: at most one cache-busting rebuild per action per 30s. A user tapping Refresh
    still gets a rebuild; a loop cannot exhaust the script's quota. */

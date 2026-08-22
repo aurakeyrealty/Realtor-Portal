@@ -37,11 +37,11 @@ function $(id){return document.getElementById(id);}
 function isAuthErr(d){ return !!(d&&d.ok===false&&/\b(login|token|auth)\b/i.test(String(d.error||''))); }
 /* Every server action requires a token except login/session. Attach it here so
    no call site can forget it — login ignores the field, session sets its own. */
-function call(action,params){
+function call(action,params,opts){
   var p=params||{};
   if(action!=='login'&&TOKEN&&p.auth==null){ var q={}; for(var k in p) q[k]=p[k]; q.auth=TOKEN; p=q; }
   function onData(d){ if(action!=='login'&&isAuthErr(d)) sessionLost(); return d; }   // central re-gate
-  if(window.AK_EXEC) return callHttp(action,p).then(onData);
+  if(window.AK_EXEC) return callHttp(action,p,opts).then(onData);
   return new Promise(function(res,rej){
     google.script.run.withSuccessHandler(function(d){ res(onData(d)); }).withFailureHandler(rej).app(action,p);
   });
@@ -56,14 +56,14 @@ function call(action,params){
    So anything that is not a JSON reply from our server -- an HTTP error, the HTML
    sign-in page Google serves when a deployment is re-scoped, a body that will not
    parse -- is rejected here, and the offline path stays the offline path. */
-function callHttp(action,p){
+function callHttp(action,p,opts){
   var body={}; for(var k in p) body[k]=p[k]; body.action=action;
   /* A request that never settles is the one failure the cache cannot help with: the
      saved copy is only read on rejection, so a stalled socket (a phone waking from
      the background onto a dead connection) would hold a full cache behind skeletons
      for as long as the OS lets it hang. Cut it off and let the offline path run. */
   var ac=(typeof AbortController!=='undefined')?new AbortController():null;
-  var timer=ac?setTimeout(function(){ ac.abort(); },15000):null;
+  var timer=ac?setTimeout(function(){ ac.abort(); },(opts&&opts.timeout)||QUICK_MS):null;
   function settle(){ if(timer) clearTimeout(timer); }
   return fetch(window.AK_EXEC,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify(body),redirect:'follow',signal:ac?ac.signal:undefined})
     .then(function(r){
@@ -94,6 +94,30 @@ function cachePersist(key,val){
 }
 /* read-through cache: instant back-navigation, offline fallback, manual refresh */
 var MEM={}, FRESH=false, RENDER_FRESH=false, CACHE_TTL=600000, RENDER_SEQ=0;
+/* Cutting a request off early is only worth doing when there is a saved copy to
+   fall back to. With nothing cached the fallback shows an error, so a short
+   budget buys a failure a longer one would not have had -- and Home, the first
+   screen anyone opens, is exactly that case on a cold server cache. */
+var QUICK_MS=15000, SLOW_MS=75000;
+function hasFallback_(k){
+  if(MEM[k]) return true;
+  try{ return !!localStorage.getItem('akc_'+k); }catch(e){ return false; }
+}
+/* Only ever attached to a screen still showing skeletons, so a background
+   prefetch cannot drop this on top of data that is already on screen. */
+var SLOW_T=null;
+function slowNote(on){
+  clearTimeout(SLOW_T);
+  var cur=$('slowNote'); if(cur&&cur.parentNode) cur.parentNode.removeChild(cur);
+  if(!on) return;
+  SLOW_T=setTimeout(function(){
+    var c=$('content'); if(!c||!c.querySelector('.skel')||$('slowNote')) return;
+    var d=document.createElement('div');
+    d.id='slowNote'; d.className='warn'; d.style.margin='0 0 12px';
+    d.textContent='Still loading — the first open after a quiet spell can take up to a minute.';
+    c.insertBefore(d,c.firstChild);
+  },12000);
+}
 var STALE_ERR={stale:true};
 function freshOnly(pr){ var seq=RENDER_SEQ; return pr.then(function(d){ if(seq!==RENDER_SEQ) throw STALE_ERR; return d; }); }
 function ckey(a,p){ return a+':'+JSON.stringify(p||{}); }
@@ -114,7 +138,9 @@ function cachedCallRaw(action,params){
   }
   var p=params||{};
   if(fresh){ p={}; for(var kk in params) p[kk]=params[kk]; p.fresh=1; }
-  var pr=call(action,p).then(function(d){
+  var slow=!hasFallback_(k);
+  if(slow) slowNote(true);
+  var pr=call(action,p,{timeout:slow?SLOW_MS:QUICK_MS}).then(function(d){
     if(isAuthErr(d)) return d;   // never cache a 'login required' refusal
     MEM[k]={data:d,at:Date.now()};
     try{ var sj=JSON.stringify({data:d,at:Date.now()}); if(sj.length<200000) cachePersist('akc_'+k,sj); }catch(e){}
@@ -126,7 +152,8 @@ function cachedCallRaw(action,params){
   });
   INFLIGHT[k]=pr;
   // Cleared however it settles, so a failure never pins a rejected promise here.
-  pr.then(function(){ delete INFLIGHT[k]; }, function(){ delete INFLIGHT[k]; });
+  pr.then(function(){ delete INFLIGHT[k]; if(slow) slowNote(false); },
+          function(){ delete INFLIGHT[k]; if(slow) slowNote(false); });
   return pr;
 }
 function refreshView(){ FRESH=true; route(); }
@@ -292,7 +319,9 @@ window.akErrors=function(){ return ERRLOG.slice(); };
 function fail(e){
   if(e===STALE_ERR) return;
   logErr('load: '+((e&&e.message)||e||''));
-  $('content').innerHTML='<div class="err">Could not load — try again.<br><span style="color:var(--mute)">Check your connection, or pull the Refresh button above.</span></div>';
+  $('content').innerHTML=/timed out/i.test((e&&e.message)||'')
+    ? '<div class="err">This screen is still being built.<br><span style="color:var(--mute)">The first open after a quiet spell takes a minute. Tap Refresh above to try again.</span></div>'
+    : '<div class="err">Could not load — try again.<br><span style="color:var(--mute)">Check your connection, or pull the Refresh button above.</span></div>';
 }
 
 function kv(k,v){ if(v==null||v===''||typeof v==='object')return''; if(isUrl(v))return '<div class="kv"><span class="kk">'+esc(k)+'</span><a class="vv" href="'+esc(v)+'" target="_blank" rel="noopener noreferrer">'+esc(host(v))+'</a></div>'; return '<div class="kv"><span class="kk">'+esc(k)+'</span><span class="vv">'+esc(v)+'</span></div>'; }
