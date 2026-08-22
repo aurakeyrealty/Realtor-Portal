@@ -32,7 +32,7 @@ a{color:var(--blue)}
    the sticky .topbar inside it. clip establishes no scrollport, so sticky still
    resolves against the viewport, and the fixed .tabbar/.toTop are unaffected
    because this element is not their containing block. */
-.phone{max-width:var(--col);margin:0 auto;background:var(--paper);min-height:100vh;overflow-x:clip}
+.phone{max-width:var(--col);margin:0 auto;background:var(--paper);min-height:100vh;min-height:100dvh;overflow-x:clip}
 .topbar{background:var(--ink);color:#fff;position:sticky;top:0;z-index:20;padding:0.5rem 1rem;padding-top:calc(0.5rem + env(safe-area-inset-top))}
 .hdr{background:var(--ink);color:#fff;padding:0.25rem 1rem 1rem}
 .hdr-row{display:flex;align-items:center;gap:0.75rem}
@@ -272,8 +272,14 @@ body.gated .phone,body.gated .toTop,body.gated .drawer,body.gated .scrim{display
   border:1.5px solid rgba(255,255,255,.28);border-radius:12px;background:rgba(9,19,26,.26)}
 .gate-l+.gate-field{margin-bottom:11px}
 .gate-ico{color:var(--gold);flex-shrink:0}
+/* 16px is a floor, not a preference -- the handoff asks for 15px, but Safari
+   auto-zooms the page when a focused input is under 16px, and the zoom persists
+   after the field is left, leaving every screen scrollable sideways. showGate()
+   focuses this field on open, so it fired before anyone typed a character. The
+   max() keeps the design's intent visible while the floor does its job; the same
+   idiom guards `input` globally above. */
 .gate-card input{flex:1;min-width:0;border:0;background:transparent;color:#fff;
-  font:inherit;font-size:15px;padding:0}
+  font:inherit;font-size:max(16px,15px);padding:0}
 .gate-card input::placeholder{color:#93A6B3}
 .gate-card input:focus{outline:none}
 /* The mock suppresses the focus ring; production must not. Drawn on the field,
