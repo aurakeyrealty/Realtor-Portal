@@ -1736,11 +1736,20 @@ function tokenClear(){ try{ [localStorage,sessionStorage].forEach(function(s){ s
    read only the timestamp, and only to skip a pointless round trip on a token
    that is already dead — the signature is the server's business, and it checks
    it on every call. Nothing here decides who you are. */
+/* The timestamp is the LAST field, not the third. The payload gained a
+   credential generation between the deployed server and this one --
+   user|role|issued became user|role|gen|issued -- and a fixed index [2] reads
+   the generation on the newer format. A gen is a ten-character base64 digest,
+   so Number() gives NaN, tokenAlive() is false for every token, and an offline
+   launch shows the sign-in screen instead of the cached app. Counting from the
+   end is right for both shapes, so the client does not have to be deployed in
+   lockstep with the server. */
 function tokenIssued(t){
   try{
     var b=String(t||'').split('.')[0].replace(/-/g,'+').replace(/_/g,'/');
     while(b.length%4) b+='=';
-    var n=Number(atob(b).split('|')[2]);
+    var f=atob(b).split('|');
+    var n=Number(f[f.length-1]);
     return isFinite(n)?n:0;
   }catch(e){ return 0; }
 }
