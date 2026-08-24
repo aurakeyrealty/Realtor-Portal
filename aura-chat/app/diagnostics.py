@@ -209,7 +209,7 @@ async def _project_probe(c: Container, auth: str, fresh: bool = False) -> bool:
     # Through the redacting wrapper, and at the strictest setting: a check that
     # takes a shortcut past the layer it is meant to prove stops being a check.
     repo = c.projects_for(STRICTEST)
-    return len(await repo.search(ProjectFilters(limit=1), auth=auth)) > 0
+    return len((await repo.search(ProjectFilters(limit=1), auth=auth)).items) > 0
 
 
 def data_quality(c: Container) -> Check:

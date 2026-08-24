@@ -13,6 +13,54 @@ formatting.
 
 ---
 
+## 2026-08-24 — A page now knows how big the set was, and counting got its own tool
+
+**What.** Two changes with one cause. `ProjectRepo.search` returns `SearchPage`
+(items + total) instead of a bare list, and a new `inventory_summary` tool
+answers counts, city and builder lists, cheapest and dearest over every match
+rather than a page of them.
+
+**Why.** `search` capped at 12 and threw `len(hits)` away, so the model could not
+tell "12 results" from "12 of 41". It answered anyway. Asked which cities the
+brokerage covers it said nine — exactly the cities present in the 12 cards it
+was holding. Asked for the cheapest project it named the cheapest of 12. Asked
+which projects are focus projects it listed 12, which is the cap, not the list.
+Every one of those is a claim about the whole inventory phrased from a sample,
+and a realtor has no way to see the sample boundary. The adapter had carried a
+comment admitting the gap and saying it would wait for a reason better than
+tidiness. Wrong answers are that reason.
+
+`total` alone only makes the answers honest ("12 of 41"), not correct — knowing
+41 matched still does not tell you the cheapest of the 41. Hence the second
+tool. It returns counts and names, never project records, so a counting question
+stops emitting a truncated card list that reads as the whole inventory. The two
+share `matches()`, so a summary can never describe a different set from the one
+the same filters would search.
+
+**Rejected.** Raising the cap: 161 projects into a prompt, at token cost, for a
+card list nobody reads. Also rejected: a prompt rule telling the model not to
+generalise from truncated results. That is a request, and the rest of this
+service prefers guarantees — the rule is in the prompt too, but as a second
+line, not the fix.
+
+**Why a method and not a sixth port.** `summarise` sits on `ProjectRepo`. The cap
+of five ports stands. A caller that raised `limit` to count instead would pull
+the whole sheet into a prompt, and in SQL this is GROUP BY, not a second read.
+
+**Two things that could have gone wrong and are tested.** `total` is not
+recomputed per viewer — what matched does not change with the audience, only
+which fields show, and a Client-Mode search reporting different inventory from
+a realtor's would be a strange and quiet bug. And `inventory_summary` hands back
+two real `Project`s (cheapest, dearest), which is exactly how a redaction policy
+grows a hole; they go through the same wrapper as any other card, asserted over
+all four role x mode combinations.
+
+**`without_price` is not decoration.** 135 of 157 available projects have no
+readable price. Without that number, "the cheapest is DUO Condos" silently means
+"cheapest of the 22 that have a price".
+
+---
+
 ## 2026-08-24 — The ONTARIO tab is dropped from the index
 
 **What.** `ROLLUP_CITIES` in `projects_exec.py`. Rows whose CITY is ONTARIO

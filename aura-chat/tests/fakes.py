@@ -10,7 +10,9 @@ import hmac
 import time
 from collections.abc import AsyncIterator
 
-from app.domain import Claims, ChatMode, Project, ProjectFilters, Role
+from app.domain import (
+    Claims, ChatMode, InventorySummary, Project, ProjectFilters, Role, SearchPage, Tally,
+)
 
 TEST_SECRET = "test-secret-not-a-real-key"
 
@@ -42,7 +44,7 @@ class FakeProjectRepo:
     def __init__(self, projects: list[Project] | None = None) -> None:
         self.projects = projects or []
 
-    async def search(self, filters: ProjectFilters, *, auth: str) -> list[Project]:
+    async def search(self, filters: ProjectFilters, *, auth: str) -> SearchPage:
         out = self.projects
         if filters.city:
             out = [p for p in out if p.city.upper() == filters.city.upper()]
@@ -56,7 +58,25 @@ class FakeProjectRepo:
             out = [p for p in out if wanted & set(p.categories)]
         if filters.focus_only is not None:
             out = [p for p in out if p.is_focus is filters.focus_only]
-        return out[: filters.limit]
+        return SearchPage(items=out[: filters.limit], total=len(out))
+
+    async def summarise(self, filters: ProjectFilters, *, auth: str) -> InventorySummary:
+        # Reuses this fake's own filtering by asking for everything, so the fake
+        # cannot drift into summarising a different set from the one it searches.
+        hits = (await self.search(filters.model_copy(update={"limit": 10_000}), auth=auth)).items
+        priced = [p for p in hits if p.starting_price is not None]
+        counts: dict[str, int] = {}
+        for p in hits:
+            if p.city:
+                counts[p.city] = counts.get(p.city, 0) + 1
+        return InventorySummary(
+            total=len(hits),
+            names=sorted(p.name for p in hits),
+            cities=[Tally(label=k, count=n) for k, n in sorted(counts.items())],
+            cheapest=min(priced, key=lambda p: p.starting_price, default=None),
+            dearest=max(priced, key=lambda p: p.starting_price, default=None),
+            without_price=len(hits) - len(priced),
+        )
 
     async def get(self, project_id: str, *, auth: str) -> Project | None:
         return next((p for p in self.projects if p.id == project_id), None)

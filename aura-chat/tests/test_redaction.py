@@ -8,7 +8,16 @@ on screen, and nothing errors or can be undone.
 import pytest
 
 from app.adapters.projects_redacting import RedactingProjectRepo
-from app.domain import ADMIN_ONLY, CLIENT_HIDDEN, CONFIDENTIAL_FIELDS, ChatMode, Role, Viewer
+from app.domain import (
+    ADMIN_ONLY,
+    CLIENT_HIDDEN,
+    CONFIDENTIAL_FIELDS,
+    STRICTEST,
+    ChatMode,
+    ProjectFilters,
+    Role,
+    Viewer,
+)
 from app.domain.project import Project
 from tests.fakes import FakeProjectRepo
 
@@ -89,7 +98,7 @@ async def test_a_tool_cannot_obtain_an_unredacted_project():
     from app import tools
 
     for got in (
-        await tools.search_projects(repo, auth=AUTH),
+        (await tools.search_projects(repo, auth=AUTH)).items,
         await tools.compare_projects(repo, ["AK-0001"], auth=AUTH),
         await tools.get_recent_projects(repo, auth=AUTH),
         [await tools.get_project(repo, "AK-0001", auth=AUTH)],
@@ -104,5 +113,41 @@ async def test_search_still_filters_on_fields_it_may_not_show():
     repo = RedactingProjectRepo(inner, Viewer(role=Role.REALTOR, mode=ChatMode.CLIENT))
     from app.domain import ProjectFilters
 
-    out = await repo.search(ProjectFilters(city="BRAMPTON"), auth=AUTH)
+    out = (await repo.search(ProjectFilters(city="BRAMPTON"), auth=AUTH)).items
     assert len(out) == 1 and out[0].status == ""
+
+
+async def test_the_match_count_does_not_shrink_in_client_mode():
+    """What matched does not change with the audience -- only which fields show.
+
+    Recomputing the total per viewer would make the same search report different
+    inventory to a realtor and to the buyer sitting next to them.
+    """
+    rows = [Project(id=f"p{i}", name=f"P{i}", city="BRAMPTON") for i in range(41)]
+    realtor = RedactingProjectRepo(FakeProjectRepo(rows), Viewer(role=Role.REALTOR, mode=ChatMode.REALTOR))
+    client = RedactingProjectRepo(FakeProjectRepo(rows), STRICTEST)
+    a = await realtor.search(ProjectFilters(city="BRAMPTON", limit=12), auth=AUTH)
+    b = await client.search(ProjectFilters(city="BRAMPTON", limit=12), auth=AUTH)
+    assert a.total == b.total == 41
+
+
+@pytest.mark.parametrize("viewer", ALL_VIEWERS, ids=lambda v: f"{v.role}-{v.mode}")
+async def test_summary_exposes_no_hidden_field(viewer):
+    """A summary returns two real Projects -- cheapest and dearest -- and a new
+    tool that hands back a Project is exactly how a redaction policy gets a hole
+    in it. They go through the same wrapper as any other card."""
+    repo = RedactingProjectRepo(FakeProjectRepo([loaded()]), viewer)
+    s = await repo.summarise(ProjectFilters(), auth=AUTH)
+    for card in (s.cheapest, s.dearest):
+        assert card is not None
+        for field in viewer.hidden_fields:
+            assert getattr(card, field) == "", f"{field} leaked via inventory_summary"
+
+
+async def test_a_summary_counts_the_same_set_it_would_have_searched():
+    """If the two ever disagree, one of them is lying to the realtor."""
+    rows = [Project(id=f"p{i}", name=f"P{i}", city="BRAMPTON") for i in range(41)]
+    repo = RedactingProjectRepo(FakeProjectRepo(rows), STRICTEST)
+    page = await repo.search(ProjectFilters(city="BRAMPTON", limit=12), auth=AUTH)
+    summary = await repo.summarise(ProjectFilters(city="BRAMPTON"), auth=AUTH)
+    assert summary.total == page.total

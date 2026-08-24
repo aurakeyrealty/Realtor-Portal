@@ -34,7 +34,7 @@ def repo():
 
 
 async def test_search_returns_domain_objects(repo):
-    out = await tools.search_projects(repo, auth=AUTH, city="BRAMPTON")
+    out = (await tools.search_projects(repo, auth=AUTH, city="BRAMPTON")).items
     assert out and all(isinstance(x, Project) for x in out)
 
 
@@ -42,20 +42,20 @@ async def test_a_redacting_repo_is_what_makes_a_tool_safe(repo):
     """Tools have no redaction step. They are handed a repo that cannot return
     an unredacted record, so a tool added in a hurry cannot forget one."""
     client_view = RedactingProjectRepo(repo, Viewer(role=Role.REALTOR, mode=ChatMode.CLIENT))
-    out = await tools.search_projects(client_view, auth=AUTH)
+    out = (await tools.search_projects(client_view, auth=AUTH)).items
     assert out and all(x.commission == "" for x in out)
 
 
 async def test_the_same_tool_over_a_realtor_view_keeps_the_field(repo):
     realtor_view = RedactingProjectRepo(repo, Viewer(role=Role.REALTOR, mode=ChatMode.REALTOR))
-    out = await tools.search_projects(realtor_view, auth=AUTH)
+    out = (await tools.search_projects(realtor_view, auth=AUTH)).items
     assert any(x.commission for x in out)
 
 
 async def test_results_are_capped(repo):
     """One question must never drag the whole sheet into a prompt (AUR-17)."""
     big = FakeProjectRepo([p(f"P{i}") for i in range(100)])
-    out = await tools.search_projects(big, auth=AUTH, limit=999)
+    out = (await tools.search_projects(big, auth=AUTH, limit=999)).items
     assert len(out) <= tools.MAX_RESULTS
 
 
@@ -79,10 +79,74 @@ async def test_search_can_ask_for_focus_projects():
     from the start but not askable, so Aura answered "I can't search for focus
     projects" about a signal every other surface exposes."""
     mixed = FakeProjectRepo([p("Pushed", is_focus=True), p("Ordinary", is_focus=False)])
-    out = await tools.search_projects(mixed, auth=AUTH, focus_only=True)
+    out = (await tools.search_projects(mixed, auth=AUTH, focus_only=True)).items
     assert [x.name for x in out] == ["Pushed"]
 
 
 async def test_search_without_focus_returns_both():
     mixed = FakeProjectRepo([p("Pushed", is_focus=True), p("Ordinary", is_focus=False)])
-    assert len(await tools.search_projects(mixed, auth=AUTH)) == 2
+    assert len((await tools.search_projects(mixed, auth=AUTH)).items) == 2
+
+
+async def test_a_capped_search_reports_how_many_actually_matched():
+    """The page is 12; the answer must be able to say 41.
+
+    Without this the model reads 12 rows and says "we have 12 townhomes in
+    Brampton" -- a statement about the page, phrased as a statement about the
+    brokerage.
+    """
+    many = FakeProjectRepo([
+        Project(id=f"p{i}", name=f"P{i}", city="BRAMPTON") for i in range(41)
+    ])
+    page = await tools.search_projects(many, auth=AUTH, city="BRAMPTON")
+    assert len(page.items) == tools.MAX_RESULTS
+    assert page.total == 41
+    assert page.truncated is True
+
+
+async def test_an_uncapped_search_is_not_reported_as_truncated():
+    few = FakeProjectRepo([Project(id="p1", name="P1", city="BRAMPTON")])
+    page = await tools.search_projects(few, auth=AUTH, city="BRAMPTON")
+    assert page.total == 1 and page.truncated is False
+
+
+async def test_a_summary_counts_every_match_not_just_a_page():
+    """The bug this exists for: 41 matched, 12 were shown, and the model
+    answered "we have 12" and "we are in 9 cities" from the 12."""
+    rows = [
+        Project(id=f"p{i}", name=f"P{i}", city="BRAMPTON" if i % 2 else "CALEDON")
+        for i in range(41)
+    ]
+    s = await tools.inventory_summary(FakeProjectRepo(rows), auth=AUTH)
+    assert s.total == 41
+    assert sum(t.count for t in s.cities) == 41
+    assert {t.label for t in s.cities} == {"BRAMPTON", "CALEDON"}
+    assert len(s.names) == 41
+
+
+async def test_the_cheapest_is_the_cheapest_of_all_of_them():
+    """Not of the page. The one on the last row is the point."""
+    rows = [Project(id=f"p{i}", name=f"P{i}", city="X", starting_price=900_000 - i)
+            for i in range(41)]
+    s = await tools.inventory_summary(FakeProjectRepo(rows), auth=AUTH)
+    assert s.cheapest.starting_price == 900_000 - 40
+    assert s.dearest.starting_price == 900_000
+    assert s.without_price == 0
+
+
+async def test_projects_with_no_price_are_counted_not_ignored():
+    """"Cheapest" over a set where most rows have no price is a half-truth
+    unless the count of the excluded half comes with it."""
+    rows = [
+        Project(id="a", name="A", city="X", starting_price=500_000),
+        Project(id="b", name="B", city="X"),
+        Project(id="c", name="C", city="X"),
+    ]
+    s = await tools.inventory_summary(FakeProjectRepo(rows), auth=AUTH)
+    assert s.total == 3 and s.without_price == 2
+    assert s.cheapest.id == "a"
+
+
+async def test_an_empty_summary_names_nothing_rather_than_guessing():
+    s = await tools.inventory_summary(FakeProjectRepo([]), auth=AUTH)
+    assert s.total == 0 and s.cheapest is None and s.dearest is None and s.names == []

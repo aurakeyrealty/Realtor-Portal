@@ -121,3 +121,65 @@ class ProjectFilters(BaseModel):
     focus_only: bool | None = None
     include_unavailable: bool = False
     limit: int = 20
+
+
+class SearchPage(BaseModel):
+    """A page of results that remembers how many there were.
+
+    The cap exists so a realtor gets an answer rather than a catalogue, but
+    `items` alone is indistinguishable from "this is everything". The model was
+    reading 12 rows and answering "we have projects in 9 cities" -- a statement
+    about the page, phrased as a statement about the brokerage.
+
+    `total` is what matched before the cap, so the answer can say "12 of 41".
+    It is not a substitute for `inventory_summary`: knowing 41 matched still
+    does not tell you the cheapest of the 41.
+    """
+
+    items: list[Project] = Field(default_factory=list)
+    total: int = 0
+
+    @property
+    def truncated(self) -> bool:
+        return self.total > len(self.items)
+
+
+# Names are capped because the answer is read on a phone. The cap is generous
+# enough that it almost never bites, and `names_truncated` says so when it does
+# -- an unflagged cut here would recreate the exact bug this model exists to
+# fix, one layer down.
+MAX_SUMMARY_NAMES = 60
+
+
+class Tally(BaseModel):
+    """One label and how many projects carry it."""
+
+    label: str
+    count: int
+
+
+class InventorySummary(BaseModel):
+    """What a whole matching set looks like, without returning the set.
+
+    A capped search cannot answer "how many", "which cities", or "the cheapest"
+    -- those are claims about every match, and a page of 12 cannot support one.
+    This is computed over all of them and returns counts and names, never
+    project records, so a counting question stops producing a truncated list of
+    cards that reads as though it were the whole inventory.
+
+    It aggregates only fields no audience is denied -- name, city, builder,
+    price -- so it is not a way around redaction. `test_summary_exposes_no_
+    hidden_field` holds that line.
+    """
+
+    total: int = 0
+    names: list[str] = Field(default_factory=list)
+    names_truncated: bool = False
+    cities: list[Tally] = Field(default_factory=list)
+    builders: list[Tally] = Field(default_factory=list)
+    cheapest: Project | None = None
+    dearest: Project | None = None
+    # Projects that matched but carry no readable price. Without it, "cheapest"
+    # silently means "cheapest of those with a price", which on this sheet is
+    # 29 of 163 -- and the realtor has no way to see the difference.
+    without_price: int = 0

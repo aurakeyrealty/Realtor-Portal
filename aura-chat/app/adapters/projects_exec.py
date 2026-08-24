@@ -9,7 +9,16 @@ writing a sibling adapter rather than touching tools, prompts or the API.
 import time
 from datetime import date
 
-from app.domain import Project, ProjectFilters, matches, sort_key
+from app.domain import (
+    MAX_SUMMARY_NAMES,
+    InventorySummary,
+    Project,
+    ProjectFilters,
+    SearchPage,
+    Tally,
+    matches,
+    sort_key,
+)
 
 from .parsing import (
     is_blank,
@@ -34,6 +43,24 @@ from .portal_client import PortalClient, PortalError
 # Dropped here rather than in Ai.js so the sheet keeps whatever use it has for
 # the tab, and so undoing this is a one-line revert instead of a deployment.
 ROLLUP_CITIES = frozenset({"ONTARIO"})
+
+
+def _tally(values) -> list[Tally]:
+    """Counts per label, commonest first, blanks dropped.
+
+    A blank builder is a column nobody filled, not a builder named "". Counting
+    it would put an unnamed bucket at the top of a list the realtor reads as
+    "who we work with".
+    """
+    counts: dict[str, int] = {}
+    for v in values:
+        label = str(v or "").strip()
+        if label:
+            counts[label] = counts.get(label, 0) + 1
+    return [
+        Tally(label=k, count=n)
+        for k, n in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
+    ]
 
 
 class ExecApiProjectRepo:
@@ -65,17 +92,31 @@ class ExecApiProjectRepo:
 
     # -- port ----------------------------------------------------------------
 
-    async def search(self, filters: ProjectFilters, *, auth: str) -> list[Project]:
+    async def search(self, filters: ProjectFilters, *, auth: str) -> SearchPage:
         rows = await self._index(auth)
         # Every row is tested and every match ranked -- the cap is on what the
         # caller carries away, not on what was considered.
         hits = [p for p in rows if matches(p, filters)]
         hits.sort(key=sort_key)
-        # Known gap: `len(hits)` dies here. If 40 matched, the model receives 12
-        # and has no way to say "40 matched, here are the closest" -- the total
-        # never leaves this method. Surfacing it means changing the port's
-        # return type, so it waits for a reason better than tidiness.
-        return hits[: filters.limit]
+        return SearchPage(items=hits[: filters.limit], total=len(hits))
+
+    async def summarise(self, filters: ProjectFilters, *, auth: str) -> InventorySummary:
+        rows = await self._index(auth)
+        # The same `matches` the search uses, so a summary can never describe a
+        # different set from the one the realtor would get by searching.
+        hits = [p for p in rows if matches(p, filters)]
+        priced = [p for p in hits if p.starting_price is not None]
+        names = sorted(p.name for p in hits)
+        return InventorySummary(
+            total=len(hits),
+            names=names[:MAX_SUMMARY_NAMES],
+            names_truncated=len(names) > MAX_SUMMARY_NAMES,
+            cities=_tally(p.city for p in hits),
+            builders=_tally(p.builder for p in hits),
+            cheapest=min(priced, key=lambda p: p.starting_price, default=None),
+            dearest=max(priced, key=lambda p: p.starting_price, default=None),
+            without_price=len(hits) - len(priced),
+        )
 
     async def get(self, project_id: str, *, auth: str) -> Project | None:
         rows = await self._index(auth)

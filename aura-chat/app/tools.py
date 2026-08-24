@@ -8,7 +8,7 @@ Every tool is read-only by construction: ProjectRepo has no write method to
 call (AUR-19).
 """
 
-from app.domain import Project, ProjectFilters
+from app.domain import InventorySummary, Project, ProjectFilters, SearchPage
 from app.ports import ProjectRepo
 
 # One question must never drag the whole sheet into a prompt. The model gets the
@@ -37,7 +37,7 @@ async def search_projects(
     focus_only: bool | None = None,
     query: str = "",
     limit: int = MAX_RESULTS,
-) -> list[Project]:
+) -> SearchPage:
     """Find projects matching a brief (AUR-25).
 
     categories are the portal's own buckets: detached, semi, townhome, condo.
@@ -57,6 +57,32 @@ async def search_projects(
         limit=min(limit, MAX_RESULTS),
     )
     return await repo.search(filters, auth=auth)
+
+
+async def inventory_summary(
+    repo: ProjectRepo,
+    *,
+    auth: str,
+    city: str = "",
+    builder: str = "",
+    categories: list[str] | None = None,
+    focus_only: bool | None = None,
+    query: str = "",
+) -> InventorySummary:
+    """Counts and names over everything that matches, not a page of it (AUR-29).
+
+    Same filters as `search_projects` and the same `matches` behind them, so the
+    two can never describe different sets. No `limit`: a summary that could be
+    truncated would be the bug it exists to fix.
+    """
+    filters = ProjectFilters(
+        city=city,
+        builder=builder,
+        categories=categories or [],
+        focus_only=focus_only,
+        query=query,
+    )
+    return await repo.summarise(filters, auth=auth)
 
 
 async def get_project(repo: ProjectRepo, ref: str, *, auth: str) -> Project | None:
@@ -81,7 +107,7 @@ async def get_project(repo: ProjectRepo, ref: str, *, auth: str) -> Project | No
     candidates = await repo.search(
         ProjectFilters(query=ref, include_unavailable=True, limit=MAX_RESULTS), auth=auth
     )
-    exact = [p for p in candidates if p.name.strip().lower() == ref.lower()]
+    exact = [p for p in candidates.items if p.name.strip().lower() == ref.lower()]
     return exact[0] if len(exact) == 1 else None
 
 

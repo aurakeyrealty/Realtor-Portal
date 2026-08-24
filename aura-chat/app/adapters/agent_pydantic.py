@@ -132,11 +132,16 @@ def build_agent(model: Model | str, *, client_mode: bool, max_tokens: int = 1500
         occupancy: str = "",
         focus_only: bool | None = None,
         query: str = "",
-    ) -> list[dict[str, Any]]:
+    ) -> dict[str, Any]:
         """Find projects matching a brief.
 
         categories are: detached, semi, townhome, condo. Prices are whole
         dollars. Put every constraint in one call rather than searching twice.
+
+        Returns `showing` results out of `total` that matched. When they differ
+        you are holding a page, not the inventory: say "12 of 41", and do not
+        count, list cities, or name a cheapest from it -- call
+        inventory_summary, which sees all 41.
 
         focus_only=True returns only the brokerage's focus projects -- the ones
         it is actively pushing. Use it for "what should I be selling?", "what
@@ -157,7 +162,64 @@ def build_agent(model: Model | str, *, client_mode: bool, max_tokens: int = 1500
             focus_only=focus_only,
             query=query,
         )
-        return _keep(ctx, found)
+        return {
+            "showing": len(found.items),
+            "total": found.total,
+            "projects": _keep(ctx, found.items),
+        }
+
+    @agent.tool
+    async def inventory_summary(
+        ctx: RunContext[Deps],
+        city: str = "",
+        builder: str = "",
+        categories: list[str] | None = None,
+        focus_only: bool | None = None,
+        query: str = "",
+    ) -> dict[str, Any]:
+        """Counts and names over EVERY match, not a page of them.
+
+        Use this, never search_projects, for any question whose answer is a
+        claim about all of them: "how many do we have", "which cities are we
+        in", "who do we work with", "what is the cheapest", "do we have
+        anything in Milton". search_projects is capped, so counting or
+        picking a minimum from its results describes the page, not the
+        brokerage.
+
+        Filters are the same as search_projects; leave them all unset to
+        summarise the whole inventory. Returns no project cards -- if the
+        realtor then wants to see them, search.
+        """
+        s = await tools.inventory_summary(
+            ctx.deps.repo,
+            auth=ctx.deps.auth,
+            city=city,
+            builder=builder,
+            categories=categories,
+            focus_only=focus_only,
+            query=query,
+        )
+        out: dict[str, Any] = {
+            "total": s.total,
+            "names": s.names,
+            "cities": [{"city": t.label, "count": t.count} for t in s.cities],
+            "builders": [{"builder": t.label, "count": t.count} for t in s.builders],
+            "without_a_price": s.without_price,
+        }
+        if s.names_truncated:
+            out["names_note"] = f"first {len(s.names)} names of {s.total}, alphabetical"
+        # Carded, unlike the counts: naming the cheapest project is showing it,
+        # and the realtor should get the record rather than a price in prose.
+        if s.cheapest is not None:
+            out["cheapest"] = _keep(ctx, [s.cheapest])[0]
+        if s.dearest is not None:
+            out["dearest"] = _keep(ctx, [s.dearest])[0]
+        if s.without_price:
+            out["price_caveat"] = (
+                f"{s.without_price} of {s.total} have no readable price and are "
+                "not represented by cheapest/dearest -- say so"
+            )
+        return out
 
     @agent.tool
     async def get_project(ctx: RunContext[Deps], project_id_or_name: str) -> dict[str, Any]:
@@ -183,7 +245,7 @@ def build_agent(model: Model | str, *, client_mode: bool, max_tokens: int = 1500
         return {
             "found": False,
             "reason": "no exact id or unique name match",
-            "candidates": _keep(ctx, near),
+            "candidates": _keep(ctx, near.items),
             "next": "ask the realtor which of the candidates they mean; do not say the project does not exist",
         }
 

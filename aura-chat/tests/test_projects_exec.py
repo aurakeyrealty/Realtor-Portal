@@ -50,7 +50,7 @@ def repo(portal, **kw) -> ExecApiProjectRepo:
 
 
 async def test_a_sheet_row_becomes_a_domain_project():
-    out = await repo(StubPortal()).search(ProjectFilters(), auth=AUTH)
+    out = (await repo(StubPortal()).search(ProjectFilters(), auth=AUTH)).items
     p = out[0]
     assert p.id == "AK-0001"
     assert p.name == "Reva Westfield"
@@ -62,25 +62,25 @@ async def test_a_sheet_row_becomes_a_domain_project():
 
 async def test_a_missing_project_id_falls_back_to_a_slug():
     """Sudhanshu is filling the real column now; deep links work meanwhile."""
-    out = await repo(StubPortal([row(id="")])).search(ProjectFilters(), auth=AUTH)
+    out = (await repo(StubPortal([row(id="")])).search(ProjectFilters(), auth=AUTH)).items
     assert out[0].id == "brampton:reva-westfield"
 
 
 async def test_a_real_project_id_always_wins_over_the_slug():
-    out = await repo(StubPortal([row(id="AK-0042")])).search(ProjectFilters(), auth=AUTH)
+    out = (await repo(StubPortal([row(id="AK-0042")])).search(ProjectFilters(), auth=AUTH)).items
     assert out[0].id == "AK-0042"
 
 
 async def test_rows_without_a_name_or_city_are_dropped():
     portal = StubPortal([row(project=""), row(city=""), row()])
-    assert len(await repo(portal).search(ProjectFilters(), auth=AUTH)) == 1
+    assert len((await repo(portal).search(ProjectFilters(), auth=AUTH)).items) == 1
 
 
 async def test_columns_a_tab_does_not_have_read_as_absent_not_wrong():
     """Every tab but BRAMPTON lacks the commercial columns today."""
     bare = {k: "" for k in row()}
     bare.update({"city": "AJAX", "project": "Somewhere", "cats": [], "hidden": False})
-    out = await repo(StubPortal([bare])).search(ProjectFilters(), auth=AUTH)
+    out = (await repo(StubPortal([bare])).search(ProjectFilters(), auth=AUTH)).items
     p = out[0]
     assert p.starting_price is None and p.deposit_pct is None and p.last_updated is None
 
@@ -133,7 +133,7 @@ async def test_get_finds_an_unavailable_project_that_search_hides():
     """'What happened to X?' still needs an answer."""
     portal = StubPortal([row(hidden=True)])
     r = repo(portal)
-    assert await r.search(ProjectFilters(), auth=AUTH) == []
+    assert (await r.search(ProjectFilters(), auth=AUTH)).items == []
     assert (await r.get("AK-0001", auth=AUTH)) is not None
 
 
@@ -213,14 +213,14 @@ async def test_a_range_in_one_price_column_keeps_both_ends():
     """ONTARIO carries PRICE RANGE in a single column. Losing the high end
     excludes a project selling up to $1.4M from an 'at least $1M' search."""
     portal = StubPortal([row(price="$800,000 - $1,400,000", maxprice="")])
-    p = (await repo(portal).search(ProjectFilters(), auth=AUTH))[0]
+    p = (await repo(portal).search(ProjectFilters(), auth=AUTH)).items[0]
     assert p.starting_price == 800_000
     assert p.max_price == 1_400_000
 
 
 async def test_an_explicit_max_price_column_still_wins():
     portal = StubPortal([row(price="$800,000", maxprice="$1,100,000")])
-    p = (await repo(portal).search(ProjectFilters(), auth=AUTH))[0]
+    p = (await repo(portal).search(ProjectFilters(), auth=AUTH)).items[0]
     assert (p.starting_price, p.max_price) == (800_000, 1_100_000)
 
 
@@ -251,7 +251,7 @@ async def test_the_ontario_rollup_tab_never_becomes_projects():
         row(city="CALEDON", id="", project="Caledon Club", occupancy="2027/2028", focus=True),
         row(city="ONTARIO", id="", project="Caledon Club", occupancy="2026", focus=False),
     ])
-    out = await repo(portal).search(ProjectFilters(), auth=AUTH)
+    out = (await repo(portal).search(ProjectFilters(), auth=AUTH)).items
     assert [p.city for p in out] == ["CALEDON"]
     assert out[0].occupancy == "2027/2028"
 
@@ -261,3 +261,24 @@ async def test_skipped_rollup_rows_are_counted_for_doctor():
     await r.search(ProjectFilters(), auth=AUTH)
     assert r.skipped_rollup_rows == 2   # matched case-insensitively
     assert r.total_rows == 1
+
+
+async def test_a_summary_drops_blank_builders_rather_than_counting_them():
+    """An unfilled BUILDER column is not a builder named "". Counting it would
+    put an unnamed bucket at the top of a list read as "who we work with"."""
+    portal = StubPortal([
+        row(project="A", builder="Great Gulf"),
+        row(project="B", builder="Great Gulf"),
+        row(project="C", builder=""),
+    ])
+    s = await repo(portal).summarise(ProjectFilters(), auth=AUTH)
+    assert s.total == 3
+    assert [(t.label, t.count) for t in s.builders] == [("Great Gulf", 2)]
+
+
+async def test_a_summary_ignores_the_limit_that_caps_a_search():
+    """The whole point: a count that could be truncated is the bug it fixes."""
+    portal = StubPortal([row(project=f"P{i}", id=f"AK-{i:04d}") for i in range(41)])
+    r = repo(portal)
+    assert len((await r.search(ProjectFilters(limit=12), auth=AUTH)).items) == 12
+    assert (await r.summarise(ProjectFilters(limit=12), auth=AUTH)).total == 41

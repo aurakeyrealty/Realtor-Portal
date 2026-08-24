@@ -12,7 +12,7 @@ Constructed per request, from the verified claims plus the conversation's mode
 (AUR-18, AUR-55, AUR-56).
 """
 
-from app.domain import Project, ProjectFilters, Viewer
+from app.domain import InventorySummary, Project, ProjectFilters, SearchPage, Viewer
 from app.ports import ProjectRepo
 
 
@@ -24,12 +24,28 @@ class RedactingProjectRepo:
     def _redact(self, projects: list[Project]) -> list[Project]:
         return [p.for_viewer(self._viewer) for p in projects]
 
-    async def search(self, filters: ProjectFilters, *, auth: str) -> list[Project]:
+    async def search(self, filters: ProjectFilters, *, auth: str) -> SearchPage:
         # Filtering runs on the UNREDACTED records inside `_inner`, which is
         # correct: a search is allowed to *use* a field it may not *show*. What
         # a viewer sees is a separate question from what the sheet knows, and
         # conflating them would quietly change results by mode.
-        return self._redact(await self._inner.search(filters, auth=auth))
+        #
+        # `total` is deliberately NOT redacted down. It counts what matched, and
+        # what matched does not change with the audience -- only which fields of
+        # it are shown. Recomputing it per viewer would make the same search
+        # report different inventory in Client Mode.
+        page = await self._inner.search(filters, auth=auth)
+        return SearchPage(items=self._redact(page.items), total=page.total)
+
+    async def summarise(self, filters: ProjectFilters, *, auth: str) -> InventorySummary:
+        # Counts, names, cities and builders are visible to every audience, so
+        # only the two embedded Projects need redacting -- and they need it for
+        # the same reason any other card does.
+        s = await self._inner.summarise(filters, auth=auth)
+        return s.model_copy(update={
+            "cheapest": s.cheapest.for_viewer(self._viewer) if s.cheapest else None,
+            "dearest": s.dearest.for_viewer(self._viewer) if s.dearest else None,
+        })
 
     async def get(self, project_id: str, *, auth: str) -> Project | None:
         found = await self._inner.get(project_id, auth=auth)
