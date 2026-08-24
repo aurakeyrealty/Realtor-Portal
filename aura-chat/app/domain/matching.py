@@ -23,6 +23,12 @@ def matches(p: Project, f: ProjectFilters) -> bool:
         return False
     if f.status and f.status.lower() not in p.status.lower():
         return False
+    # `is True` and `is False`, not truthiness: None means the caller did not
+    # ask, and must not quietly become "only the ones that are not focus".
+    if f.focus_only is True and not p.is_focus:
+        return False
+    if f.focus_only is False and p.is_focus:
+        return False
     if f.occupancy and f.occupancy.lower() not in p.occupancy.lower():
         return False
     if f.query and f.query.lower() not in _text_of(p):

@@ -114,5 +114,10 @@ class ProjectFilters(BaseModel):
     max_deposit_pct: float | None = None
     status: str = ""
     occupancy: str = ""
+    # The brokerage's own priority signal, carried on the STATUS column. It was
+    # sortable from the start but not askable, so "what should I be pushing?" --
+    # the question an assistant most obviously exists to answer -- had no way
+    # through. None means "do not care", which is not the same as False.
+    focus_only: bool | None = None
     include_unavailable: bool = False
     limit: int = 20

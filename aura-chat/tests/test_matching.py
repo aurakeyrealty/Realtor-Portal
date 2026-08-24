@@ -71,3 +71,20 @@ def test_focus_leads_and_unpriced_projects_sort_last():
     rows = [p(name="B"), p(name="A", starting_price=None), p(name="C", is_focus=True)]
     rows.sort(key=sort_key)
     assert [x.name for x in rows] == ["C", "B", "A"]
+
+
+def test_focus_only_true_keeps_only_focus_projects():
+    assert matches(p(is_focus=True), f(focus_only=True))
+    assert not matches(p(is_focus=False), f(focus_only=True))
+
+
+def test_focus_only_false_excludes_them():
+    assert matches(p(is_focus=False), f(focus_only=False))
+    assert not matches(p(is_focus=True), f(focus_only=False))
+
+
+def test_unset_means_the_caller_did_not_ask():
+    """None must not quietly become 'only the ones that are not focus' -- the
+    reason the check is `is True` / `is False` and not truthiness."""
+    assert matches(p(is_focus=True), f())
+    assert matches(p(is_focus=False), f())

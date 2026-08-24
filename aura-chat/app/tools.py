@@ -34,12 +34,14 @@ async def search_projects(
     min_bedrooms: int | None = None,
     max_deposit_pct: float | None = None,
     occupancy: str = "",
+    focus_only: bool | None = None,
     query: str = "",
     limit: int = MAX_RESULTS,
 ) -> list[Project]:
     """Find projects matching a brief (AUR-25).
 
     categories are the portal's own buckets: detached, semi, townhome, condo.
+    focus_only selects the brokerage's own priority projects.
     """
     filters = ProjectFilters(
         city=city,
@@ -50,6 +52,7 @@ async def search_projects(
         min_bedrooms=min_bedrooms,
         max_deposit_pct=max_deposit_pct,
         occupancy=occupancy,
+        focus_only=focus_only,
         query=query,
         limit=min(limit, MAX_RESULTS),
     )

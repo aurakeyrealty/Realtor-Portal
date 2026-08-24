@@ -130,12 +130,18 @@ def build_agent(model: Model | str, *, client_mode: bool, max_tokens: int = 1500
         min_bedrooms: int | None = None,
         max_deposit_percent: float | None = None,
         occupancy: str = "",
+        focus_only: bool | None = None,
         query: str = "",
     ) -> list[dict[str, Any]]:
         """Find projects matching a brief.
 
         categories are: detached, semi, townhome, condo. Prices are whole
         dollars. Put every constraint in one call rather than searching twice.
+
+        focus_only=True returns only the brokerage's focus projects -- the ones
+        it is actively pushing. Use it for "what should I be selling?", "what
+        are our focus projects?", "what are we promoting?". Leave it unset
+        unless the realtor asked; it is not a quality ranking.
         """
         found = await tools.search_projects(
             ctx.deps.repo,
@@ -148,6 +154,7 @@ def build_agent(model: Model | str, *, client_mode: bool, max_tokens: int = 1500
             min_bedrooms=min_bedrooms,
             max_deposit_pct=max_deposit_percent,
             occupancy=occupancy,
+            focus_only=focus_only,
             query=query,
         )
         return _keep(ctx, found)

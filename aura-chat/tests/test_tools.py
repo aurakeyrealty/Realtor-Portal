@@ -72,3 +72,17 @@ async def test_get_project_is_redacted_by_the_repo_it_is_given(repo):
     client_view = RedactingProjectRepo(repo, Viewer(role=Role.REALTOR, mode=ChatMode.CLIENT))
     out = await tools.get_project(client_view, "reva", auth=AUTH)
     assert out is not None and out.commission == ""
+
+
+async def test_search_can_ask_for_focus_projects():
+    """30 projects carry the brokerage's own priority flag. It was sortable
+    from the start but not askable, so Aura answered "I can't search for focus
+    projects" about a signal every other surface exposes."""
+    mixed = FakeProjectRepo([p("Pushed", is_focus=True), p("Ordinary", is_focus=False)])
+    out = await tools.search_projects(mixed, auth=AUTH, focus_only=True)
+    assert [x.name for x in out] == ["Pushed"]
+
+
+async def test_search_without_focus_returns_both():
+    mixed = FakeProjectRepo([p("Pushed", is_focus=True), p("Ordinary", is_focus=False)])
+    assert len(await tools.search_projects(mixed, auth=AUTH)) == 2

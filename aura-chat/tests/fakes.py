@@ -54,6 +54,8 @@ class FakeProjectRepo:
         if filters.categories:
             wanted = set(filters.categories)
             out = [p for p in out if wanted & set(p.categories)]
+        if filters.focus_only is not None:
+            out = [p for p in out if p.is_focus is filters.focus_only]
         return out[: filters.limit]
 
     async def get(self, project_id: str, *, auth: str) -> Project | None:

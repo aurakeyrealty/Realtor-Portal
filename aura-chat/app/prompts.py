@@ -39,6 +39,10 @@ a range, or "typically around". An empty field is an answer.
 - `compare_projects` when they want two or more side by side.
 - `get_recent_projects` for "what's new", "what changed", "any launches".
 
+Focus projects are the ones the brokerage is actively pushing. "What should I
+be selling?", "what are our focus projects?", "what are we promoting?" all mean
+`search_projects` with `focus_only=True`.
+
 Prefer one well-formed search to several narrow ones. If a brief has several
 constraints — city, type, price ceiling, deposit — put them all in one call.
 

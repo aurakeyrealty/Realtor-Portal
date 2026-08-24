@@ -236,12 +236,62 @@ def show_cards(cards: list[dict], dev: bool) -> None:
             print(c(f"     source: {p['source']}", GREY))
 
 
+def _bench(args) -> int:
+    """`aura bench questions.csv` -- run a question set and write a report."""
+    from pathlib import Path
+
+    from app import bench
+
+    token = token_from_anywhere(args.token)
+    if not token:
+        print(c("not signed in — run `aura login`", RED))
+        return 1
+    src = Path(args.question[1])
+    if not src.exists():
+        print(c(f"no such file: {src}", RED))
+        return 1
+
+    questions = bench.load(src)
+    out = Path(args.out or src.parent)
+    out.mkdir(parents=True, exist_ok=True)
+    print(c(f"running {len(questions)} questions against {args.base}", BOLD))
+    print(c("sequentially, so the timings mean something\n", GREY))
+
+    results = asyncio.run(bench.run_all(args.base, token, questions, echo=print))
+    summary = bench.summarise(results)
+    report, log = out / "results.html", out / "results.csv"
+    bench.write_html(results, summary, report)
+    bench.write_csv(results, log)
+
+    print()
+    print(c(f"  {summary['passed']}/{summary['answered']} mechanical checks passed"
+            + (f"  ({summary['total'] - summary['answered']} not answered)"
+               if summary["answered"] < summary["total"] else ""), BOLD))
+    if summary["failed"]:
+        print(c(f"  {summary['failed']} failed", RED))
+    if summary["errors"]:
+        print(c(f"  {summary['errors']} errored", RED))
+    print(c(f"  median {summary['median_s']:.1f}s · slowest {summary['slowest_s']:.1f}s"
+            f" · {summary['over_10s']} over 10s", GREY))
+    print(c(f"  {summary['input_tokens']:,} in / {summary['output_tokens']:,} out tokens", GREY))
+    print()
+    print(c(f"  report  {report}", GREEN))
+    print(c(f"  log     {log}", GREEN))
+    print(c("\n  Green means nothing measurable is wrong, not that the answer is true.\n"
+            "  The verdict column is for a person who knows the inventory.", GREY))
+    return 1 if (summary["failed"] or summary["errors"]) else 0
+
+
 EPILOG = """\
 first time
   aura login                          sign in with your portal ID and password
                                       (only the returned token is stored, in
                                        ~/.aura/session.json, mode 0600)
   aura logout                         forget the saved session
+
+benchmarking
+  aura bench benchmarks/questions.csv run a question set, write results.html
+                                      and results.csv beside it
 
 asking
   aura                                interactive session, with follow-ups
@@ -342,6 +392,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--token", help="use this token instead of the saved session")
     ap.add_argument("--base", default=DEFAULT_BASE, help=f"service URL (default {DEFAULT_BASE})")
     ap.add_argument("--json", action="store_true", help="print one JSON object and exit")
+    ap.add_argument("--out", help="bench: where to write the report (default benchmarks/)")
     args = ap.parse_args(argv)
 
     # A single bare word, not merely the first word: `aura login details for
@@ -352,6 +403,13 @@ def main(argv: list[str] | None = None) -> int:
         return asyncio.run(do_login(args.base))
     if only == "logout":
         return do_logout()
+    # Same guard as login and logout above: the word plus exactly one path, so
+    # `aura bench mark projects against Oakville` stays a question.
+    if len(args.question) == 2 and args.question[0] == "bench":
+        return _bench(args)
+    if only == "bench":
+        print(c("usage: aura bench <questions.csv> [--out DIR]", RED))
+        return 1
 
     token = token_from_anywhere(args.token)
     if not token:
