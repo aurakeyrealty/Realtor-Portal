@@ -63,3 +63,27 @@ def test_tools_depend_only_on_domain_and_ports():
     for mod in _imports(tools):
         if mod.startswith("app."):
             assert mod.startswith(("app.domain", "app.ports")), f"tools.py imports {mod}"
+
+
+def test_tools_have_no_redaction_step_of_their_own():
+    """Redaction is a property of the repo tools are handed, not a call they
+    must remember. A `for_viewer` or `for_client` in tools.py means the guarantee
+    has quietly turned back into a convention.
+    """
+    tools = APP / "tools.py"
+    if not tools.exists():
+        return
+    body = tools.read_text()
+    assert "for_viewer" not in body and "for_client" not in body
+
+
+def test_only_the_container_hands_out_a_project_repo():
+    """A route or tool reaching for `container.projects` directly would bypass
+    the redacting wrapper — which is the one thing this design exists to make
+    impossible. Everything above the container goes through projects_for().
+    """
+    allowed = {"container.py", "diagnostics.py"}  # diagnostics probes refresh() by design
+    for f in sorted(APP.rglob("*.py")):
+        if f.name in allowed or "adapters" in f.parts:
+            continue
+        assert ".projects." not in f.read_text(), f"{f.relative_to(APP)} uses the raw repo"

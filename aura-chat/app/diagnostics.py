@@ -202,12 +202,14 @@ async def _portal_auth(c: Container, auth: str) -> bool:
 
 
 async def _project_probe(c: Container, auth: str, fresh: bool = False) -> bool:
-    from app.domain import ProjectFilters
+    from app.domain import STRICTEST, ProjectFilters
 
     if fresh:
         return await c.projects.refresh(auth=auth) > 0
-    rows = await c.projects.search(ProjectFilters(limit=1), auth=auth)
-    return len(rows) > 0
+    # Through the redacting wrapper, and at the strictest setting: a check that
+    # takes a shortcut past the layer it is meant to prove stops being a check.
+    repo = c.projects_for(STRICTEST)
+    return len(await repo.search(ProjectFilters(limit=1), auth=auth)) > 0
 
 
 def data_quality(c: Container) -> Check:

@@ -52,6 +52,49 @@ typos.
 
 ---
 
+## 2026-08-24 — Redaction became a property of the repo, not a step
+
+**What.** `Viewer` (role × mode), `Project.for_viewer()`, and a
+`RedactingProjectRepo` decorator built per request. `tools.py` lost its
+`_present()` helper entirely.
+
+**Why, given `_present()` already worked.** It was **opt-in**. Every tool had to
+remember to call it, and a tool that forgot would leak silently — no error, no
+log, no undo, just commission on a screen a buyer is looking at. That rule holds
+right until someone adds a sixth tool at 11pm on Tuesday.
+
+Tools are now handed a repo that cannot return an unredacted `Project`. The
+guarantee is structural rather than procedural, which is what AUR-18 and AUR-55
+actually ask for: stripped **in code before the model is called**, never by
+asking the model to withhold something.
+
+**Two axes, not one.** Role is what the *account* may ever see; mode is what is
+on the screen *right now*. They are unioned, never intersected — an admin in
+Client Mode is still showing a buyer a screen, so entitlement never buys back a
+client-hidden field. Collapsing them into a single flag would get one of the
+four combinations wrong.
+
+**The subtlety that shaped the decorator.** Search filters the **unredacted**
+records and redacts the results. A query may legitimately *use* a field it may
+not *show*; redacting first would silently change which projects come back
+depending on who is looking — a far worse bug than showing too little.
+
+**Enforcement, not memory.** `test_layering.py` now fails if `tools.py` mentions
+`for_viewer`, and if anything above the container reaches `container.projects`
+directly instead of `projects_for(viewer)`. `test_redaction.py` is exhaustive
+over all four (role, mode) pairs and asserts both directions: nothing hidden
+leaks, and nothing beyond the policy is removed — over-redaction quietly hands a
+realtor a worse tool.
+
+**`status` joined the client-hidden set.** "Focus" is an internal sales signal,
+not something to show a buyer.
+
+**Also:** `/doctor`'s project probe now goes through the wrapper at the strictest
+setting. A check that takes a shortcut past the layer it is meant to prove has
+stopped being a check.
+
+---
+
 ## 2026-08-24 — Four parsing and freshness bugs, from review
 
 All four produced **wrong answers rather than errors**, which is the failure mode

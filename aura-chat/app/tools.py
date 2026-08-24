@@ -8,7 +8,7 @@ Every tool is read-only by construction: ProjectRepo has no write method to
 call (AUR-19).
 """
 
-from app.domain import ChatMode, Project, ProjectFilters
+from app.domain import Project, ProjectFilters
 from app.ports import ProjectRepo
 
 # One question must never drag the whole sheet into a prompt. The model gets the
@@ -18,23 +18,14 @@ MAX_RESULTS = 12
 MAX_COMPARE = 4
 
 
-def _present(projects: list[Project], mode: ChatMode) -> list[Project]:
-    """The last gate before records reach the model.
-
-    Client Mode strips confidential fields HERE, in code, rather than asking the
-    model not to mention them (AUR-55). A prompt instruction is a request; this
-    is a guarantee.
-    """
-    if mode is ChatMode.CLIENT:
-        return [p.for_client() for p in projects]
-    return projects
-
-
+# There is no redaction step in this file, deliberately. The repo handed to
+# these functions is a RedactingProjectRepo built from the caller's verified
+# claims, so an unredacted Project is not something a tool can obtain -- rather
+# than something a tool must remember to avoid. See adapters/projects_redacting.
 async def search_projects(
     repo: ProjectRepo,
     *,
     auth: str,
-    mode: ChatMode = ChatMode.REALTOR,
     city: str = "",
     builder: str = "",
     categories: list[str] | None = None,
@@ -62,19 +53,16 @@ async def search_projects(
         query=query,
         limit=min(limit, MAX_RESULTS),
     )
-    return _present(await repo.search(filters, auth=auth), mode)
+    return await repo.search(filters, auth=auth)
 
 
-async def get_project(
-    repo: ProjectRepo, project_id: str, *, auth: str, mode: ChatMode = ChatMode.REALTOR
-) -> Project | None:
+async def get_project(repo: ProjectRepo, project_id: str, *, auth: str) -> Project | None:
     """One project's current record (AUR-26)."""
-    found = await repo.get(project_id, auth=auth)
-    return _present([found], mode)[0] if found else None
+    return await repo.get(project_id, auth=auth)
 
 
 async def compare_projects(
-    repo: ProjectRepo, project_ids: list[str], *, auth: str, mode: ChatMode = ChatMode.REALTOR
+    repo: ProjectRepo, project_ids: list[str], *, auth: str
 ) -> list[Project]:
     """Several projects side by side (AUR-27).
 
@@ -82,7 +70,7 @@ async def compare_projects(
     restate numbers is how numbers drift.
     """
     found = [await repo.get(pid, auth=auth) for pid in project_ids[:MAX_COMPARE]]
-    return _present([p for p in found if p is not None], mode)
+    return [p for p in found if p is not None]
 
 
 async def get_recent_projects(
@@ -90,7 +78,6 @@ async def get_recent_projects(
     days: int = 7,
     *,
     auth: str,
-    mode: ChatMode = ChatMode.REALTOR,
     limit: int = MAX_RESULTS,
 ) -> list[Project]:
     """What changed lately (AUR-28).
@@ -99,4 +86,4 @@ async def get_recent_projects(
     column. An unfilled column means an empty answer, which is the correct
     answer -- not a guess from cache timestamps.
     """
-    return _present(await repo.recent(days, auth=auth, limit=min(limit, MAX_RESULTS)), mode)
+    return await repo.recent(days, auth=auth, limit=min(limit, MAX_RESULTS))

@@ -193,7 +193,9 @@ def test_unreadable_prices_degrade_rather_than_down(app):
         total_rows, unparsed_prices = 40, 3
 
         async def search(self, f, *, auth):
-            return [object()]
+            from app.domain import Project
+
+            return [Project(name="X", city="Y")]
 
         async def refresh(self, *, auth):
             return 1

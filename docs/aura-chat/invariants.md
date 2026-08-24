@@ -22,15 +22,32 @@ Never add a service account, an API key with standing access, or a "trusted
 backend" path. Permissions are then enforced by code that already exists, and a
 revoked realtor loses Aura Chat inside the same 5-minute window as the portal.
 
-## 3. Client Mode strips fields in code, before the model is called
+## 3. What a viewer may see is a property of the repo, not a step
 
-`ChatMode.CLIENT` is what a buyer may see over the realtor's shoulder.
-`Project.for_client()` blanks `CONFIDENTIAL_FIELDS` and returns a **copy** — the
-same `Project` may be rendered to the realtor in the same request.
+Two axes, both subtractive, unioned in `Viewer.hidden_fields`:
 
-**Never implement this by asking the model to withhold something.** Adding a
-confidential field to `Project` means adding it to `CONFIDENTIAL_FIELDS` in the
-same commit.
+- **role** — what the *account* may ever see. Builder-portal logins are other
+  companies' credentials and are admin-only; the portal gates them the same way
+  in `getBuilders_`.
+- **mode** — what is on the screen *right now*. A realtor in Client Mode has
+  turned their phone toward a buyer.
+
+An admin in Client Mode is still showing a buyer a screen, so admin entitlement
+never buys back a client-hidden field.
+
+**The mechanism matters more than the policy.** Tools are handed a
+`RedactingProjectRepo` built per request from the verified claims, so there is
+no code path that yields an unredacted `Project`. Filtering is not something a
+tool remembers to do — it is something a tool cannot avoid. `tools.py`
+containing `for_viewer` at all is a test failure.
+
+This is stripped **in code, before the model is called**, never by asking the
+model to withhold something: a prompt instruction is a request, this is a
+guarantee (AUR-18, AUR-55, AUR-56).
+
+One subtlety worth keeping: search filters on the **unredacted** records.
+A query may *use* a field it may not *show* — redacting first would silently
+change which projects come back depending on who is looking.
 
 ## 4. The portal's runtime is shared, and small
 

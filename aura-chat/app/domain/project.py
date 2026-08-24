@@ -8,9 +8,10 @@ from datetime import date
 
 from pydantic import BaseModel, Field
 
-# Fields a buyer may never see over the realtor's shoulder. Client mode strips
-# these in code, before the model is called (AUR-55/56). Adding a confidential
-# field to Project means adding it here in the same commit.
+# Every field that is hidden from somebody. What is hidden from WHOM lives in
+# viewer.py; this set exists so a redaction can be checked for completeness --
+# adding a confidential field to Project means adding it here and to the right
+# audience list in the same commit.
 CONFIDENTIAL_FIELDS = frozenset(
     {
         "builder_login",
@@ -20,6 +21,7 @@ CONFIDENTIAL_FIELDS = frozenset(
         "commission",
         "internal_notes",
         "broker_url",
+        "status",
     }
 )
 
@@ -70,13 +72,19 @@ class Project(BaseModel):
     commission: str = ""
     internal_notes: str = ""
 
-    def for_client(self) -> "Project":
-        """A copy safe to put in front of a buyer.
+    def for_viewer(self, viewer) -> "Project":
+        """A copy carrying only what this viewer may see.
 
         Returns a new object rather than mutating: the same Project may be
-        rendered to the realtor in the same request.
+        rendered to the realtor and, a moment later, to a buyer.
+
+        The viewer is typed loosely to keep this module free of an import
+        cycle; anything exposing `hidden_fields` will do.
         """
-        return self.model_copy(update={f: "" for f in CONFIDENTIAL_FIELDS})
+        hidden = viewer.hidden_fields
+        if not hidden:
+            return self
+        return self.model_copy(update={f: "" for f in hidden})
 
     @property
     def is_ai_ready(self) -> bool:

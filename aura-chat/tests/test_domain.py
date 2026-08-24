@@ -1,5 +1,4 @@
 from app.domain import Project
-from app.domain.project import CONFIDENTIAL_FIELDS
 
 
 def a_project(**over) -> Project:
@@ -13,26 +12,8 @@ def a_project(**over) -> Project:
     return Project(**base)
 
 
-def test_client_mode_strips_every_confidential_field():
-    """AUR-55: stripped in code, before the model is called -- never by asking
-    the model to withhold it."""
-    safe = a_project().for_client()
-    for field in CONFIDENTIAL_FIELDS:
-        assert getattr(safe, field) == "", field
-
-
-def test_client_mode_keeps_what_a_buyer_may_see():
-    safe = a_project().for_client()
-    assert safe.name == "Reva Westfield"
-    assert safe.starting_price == 899900
-    assert safe.website_url
-
-
-def test_client_mode_does_not_mutate_the_original():
-    """The same project may be rendered to the realtor in the same request."""
-    p = a_project()
-    p.for_client()
-    assert p.commission == "4%"
+# Redaction moved to test_redaction.py, where it is exhaustive over
+# (role x mode) rather than testing one audience here.
 
 
 def test_ai_ready_requires_an_id():

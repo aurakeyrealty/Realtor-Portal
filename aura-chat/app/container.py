@@ -11,7 +11,9 @@ from dataclasses import dataclass
 from app.adapters.auth_portal_hmac import PortalHmacAuthVerifier
 from app.adapters.portal_client import PortalClient
 from app.adapters.projects_exec import ExecApiProjectRepo
+from app.adapters.projects_redacting import RedactingProjectRepo
 from app.config import Settings, load
+from app.domain import Viewer
 from app.ports import AgentRuntime, AuthVerifier, ConversationStore, DocumentIndex, ProjectRepo
 
 
@@ -24,6 +26,18 @@ class Container:
     store: ConversationStore | None = None  # Phase 4
     documents: DocumentIndex | None = None  # Phase 5
     runtime: AgentRuntime | None = None  # Phase 3
+
+    def projects_for(self, viewer: Viewer) -> ProjectRepo:
+        """The project repo as one viewer may see it.
+
+        Per request, because a viewer is per request: the same process serves a
+        realtor and, a second later, that realtor with a buyer looking on. This
+        is the only way a tool ever reaches project data, so redaction is a
+        property of the object rather than a step somebody has to remember.
+        """
+        if self.projects is None:
+            raise RuntimeError("project repo is not configured")
+        return RedactingProjectRepo(self.projects, viewer)
 
     async def aclose(self) -> None:
         await self.portal.aclose()

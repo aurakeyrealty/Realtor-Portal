@@ -3,7 +3,8 @@
 import pytest
 
 from app import tools
-from app.domain import ChatMode, Project
+from app.adapters.projects_redacting import RedactingProjectRepo
+from app.domain import ChatMode, Project, Role, Viewer
 from tests.fakes import FakeProjectRepo
 
 AUTH = "tok"
@@ -37,15 +38,17 @@ async def test_search_returns_domain_objects(repo):
     assert out and all(isinstance(x, Project) for x in out)
 
 
-async def test_client_mode_strips_before_the_model_sees_anything(repo):
-    """AUR-55: in code, not by asking the model to withhold it."""
-    out = await tools.search_projects(repo, auth=AUTH, mode=ChatMode.CLIENT)
-    assert out
-    assert all(x.builder_login == "" and x.commission == "" for x in out)
+async def test_a_redacting_repo_is_what_makes_a_tool_safe(repo):
+    """Tools have no redaction step. They are handed a repo that cannot return
+    an unredacted record, so a tool added in a hurry cannot forget one."""
+    client_view = RedactingProjectRepo(repo, Viewer(role=Role.REALTOR, mode=ChatMode.CLIENT))
+    out = await tools.search_projects(client_view, auth=AUTH)
+    assert out and all(x.commission == "" for x in out)
 
 
-async def test_realtor_mode_keeps_confidential_fields(repo):
-    out = await tools.search_projects(repo, auth=AUTH, mode=ChatMode.REALTOR)
+async def test_the_same_tool_over_a_realtor_view_keeps_the_field(repo):
+    realtor_view = RedactingProjectRepo(repo, Viewer(role=Role.REALTOR, mode=ChatMode.REALTOR))
+    out = await tools.search_projects(realtor_view, auth=AUTH)
     assert any(x.commission for x in out)
 
 
@@ -65,6 +68,7 @@ async def test_get_project_returns_none_for_an_unknown_id(repo):
     assert await tools.get_project(repo, "nope", auth=AUTH) is None
 
 
-async def test_get_project_applies_client_mode(repo):
-    out = await tools.get_project(repo, "reva", auth=AUTH, mode=ChatMode.CLIENT)
+async def test_get_project_is_redacted_by_the_repo_it_is_given(repo):
+    client_view = RedactingProjectRepo(repo, Viewer(role=Role.REALTOR, mode=ChatMode.CLIENT))
+    out = await tools.get_project(client_view, "reva", auth=AUTH)
     assert out is not None and out.commission == ""
