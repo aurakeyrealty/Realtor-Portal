@@ -1,3 +1,4 @@
+from .conversation import MAX_HISTORY_TURNS, Turn
 from .project import CONFIDENTIAL_FIELDS, Project, ProjectFilters
 from .identity import Claims, Role, ChatMode
 from .matching import matches, sort_key
@@ -8,4 +9,5 @@ __all__ = [
     "Claims", "Role", "ChatMode",
     "matches", "sort_key",
     "Viewer", "ADMIN_ONLY", "CLIENT_HIDDEN", "STRICTEST",
+    "Turn", "MAX_HISTORY_TURNS",
 ]

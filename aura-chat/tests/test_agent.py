@@ -267,3 +267,49 @@ async def test_an_ambiguous_name_returns_candidates_not_a_denial():
     events = await drain(runtime(model), viewed(twins), question="tell me about Mayfield Village")
     cards = next(e for e in events if e["type"] == "projects")["projects"]
     assert {c["builder"] for c in cards} == {"Royal Pine", "Regal Crest"}
+
+
+async def test_tool_events_arrive_before_the_text_not_after():
+    """stream_text yields nothing until the tools are done. Holding the tool
+    event until then means "searching Brampton..." lands after the search --
+    exactly the seconds it exists to fill."""
+    import asyncio
+
+    released = asyncio.Event()
+
+    class SlowRepo(FakeProjectRepo):
+        async def search(self, filters, *, auth):
+            await released.wait()          # the tool hangs until we let it go
+            return await super().search(filters, auth=auth)
+
+    repo = RedactingProjectRepo(
+        SlowRepo([a_project()]), Viewer(role=Role.REALTOR, mode=ChatMode.REALTOR)
+    )
+    model = scripted(
+        ModelResponse(parts=[ToolCallPart("search_projects", {})]),
+        ModelResponse(parts=[TextPart("done")]),
+    )
+    stream = runtime(model).stream(
+        question="q", claims=CLAIMS, auth=AUTH, mode=ChatMode.REALTOR, repo=repo
+    )
+    # The tool event must be available while the tool is still running.
+    first = await asyncio.wait_for(stream.__anext__(), timeout=2)
+    assert first["type"] == "tool"
+    released.set()
+    rest = [e async for e in stream]
+    assert [e["type"] for e in rest][-1] == "done"
+
+
+async def test_a_client_that_stops_listening_does_not_leave_the_run_going():
+    """Closing the tab mid-answer would otherwise keep the model running, and
+    billing, with nobody reading it."""
+    model = scripted(
+        ModelResponse(parts=[ToolCallPart("search_projects", {})]),
+        ModelResponse(parts=[TextPart("a b c d e")]),
+    )
+    stream = runtime(model).stream(
+        question="q", claims=CLAIMS, auth=AUTH, mode=ChatMode.REALTOR,
+        repo=viewed([a_project()]),
+    )
+    await stream.__anext__()
+    await stream.aclose()          # must not hang or raise

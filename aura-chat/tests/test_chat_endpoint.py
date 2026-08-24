@@ -16,7 +16,10 @@ class StubRuntime:
         self.seen: dict = {}
 
     async def stream(self, *, question, claims, auth, mode, repo, history=None):
-        self.seen = {"question": question, "mode": mode, "auth": auth, "repo": repo}
+        self.seen = {
+            "question": question, "mode": mode, "auth": auth,
+            "repo": repo, "history": history or [],
+        }
         for e in self.events:
             yield e
 
@@ -128,5 +131,35 @@ def test_a_very_long_question_is_refused(app):
     with TestClient(app) as client:
         r = client.post(
             "/chat", json={"question": "x" * 5000}, headers={"Authorization": f"Bearer {TOKEN}"}
+        )
+    assert r.status_code == 422
+
+
+def test_history_is_passed_through_to_the_runtime(app):
+    rt = wire(app)
+    with TestClient(app) as client:
+        client.post(
+            "/chat",
+            json={
+                "question": "only detached",
+                "history": [
+                    {"role": "user", "content": "projects in Brampton"},
+                    {"role": "assistant", "content": "Here are 11."},
+                ],
+            },
+            headers={"Authorization": f"Bearer {TOKEN}"},
+        )
+    assert [t.content for t in rt.seen["history"]] == ["projects in Brampton", "Here are 11."]
+
+
+def test_an_overlong_history_is_refused(app):
+    """A cap, so the prompt cannot grow without bound one refinement at a time."""
+    wire(app)
+    turns = [{"role": "user", "content": "x"}] * 50
+    with TestClient(app) as client:
+        r = client.post(
+            "/chat",
+            json={"question": "hi", "history": turns},
+            headers={"Authorization": f"Bearer {TOKEN}"},
         )
     assert r.status_code == 422

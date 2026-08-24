@@ -1,6 +1,7 @@
 """HTTP surface. Routes depend on ports via the container, never on adapters."""
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from pydantic import BaseModel, Field
 
 from app import diagnostics
 from app.container import Container
@@ -53,6 +54,52 @@ async def current_claims(
         raise HTTPException(status_code=401, detail="login required")
     request.state.auth_token = token
     return claims
+
+
+class Credentials(BaseModel):
+    user: str = Field(min_length=1, max_length=200)
+    password: str = Field(min_length=1, max_length=200)
+
+
+@router.post("/login")
+async def login(body: Credentials, request: Request) -> dict:
+    """Sign in with portal credentials and get back a session token.
+
+    A pass-through to the portal, which owns the LOGIN sheet, the password
+    hashing and the rate limiting. Nothing is stored or logged here: the
+    password exists for the length of one outbound request, and what comes back
+    is the same token the phone app holds.
+
+    This exists so a client can sign in without someone copying a token out of
+    browser storage by hand.
+    """
+    c = container(request)
+    try:
+        data = await c.portal.call("login", user=body.user, password=body.password)
+    except Exception as exc:
+        # Broad on purpose: naming the adapter's own exception type here would
+        # mean this route knows which adapter is behind the portal, which is the
+        # coupling test_layering exists to prevent. Whatever went wrong, the
+        # caller's answer is the same -- the portal did not respond.
+        raise HTTPException(status_code=502, detail=f"portal unreachable: {exc}") from exc
+    if not data.get("ok"):
+        # The portal's own wording, which distinguishes a bad password from the
+        # global lockout after too many attempts -- worth passing on verbatim.
+        raise HTTPException(status_code=401, detail=data.get("error") or "invalid id or password")
+    token = data.get("token")
+    if not token:
+        # An accepted sign-in with nothing to sign in with means the portal's
+        # contract has changed. Saying so beats a 500, which points the reader
+        # at this service rather than at the thing that actually moved.
+        raise HTTPException(
+            status_code=502, detail="portal accepted the sign-in but returned no token"
+        )
+    return {
+        "ok": True,
+        "token": token,
+        "name": data.get("name", body.user),
+        "role": data.get("role", "realtor"),
+    }
 
 
 @router.get("/health")

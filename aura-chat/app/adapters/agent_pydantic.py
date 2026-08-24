@@ -6,11 +6,21 @@ this for LangGraph, the OpenAI Agents SDK or a hand-rolled loop is a rewrite of
 this file and nothing else.
 """
 
+import asyncio
 from collections.abc import AsyncIterator
+from contextlib import suppress
 from dataclasses import dataclass, field
 from typing import Any
 
 from pydantic_ai import Agent, RunContext
+from pydantic_ai.messages import (
+    FunctionToolCallEvent,
+    FunctionToolResultEvent,
+    ModelRequest,
+    ModelResponse,
+    TextPart,
+    UserPromptPart,
+)
 from pydantic_ai.models import Model
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openrouter import OpenRouterProvider
@@ -18,7 +28,7 @@ from pydantic_ai.settings import ModelSettings
 from pydantic_ai.usage import UsageLimits
 
 from app import tools
-from app.domain import ChatMode, Claims, Project
+from app.domain import ChatMode, Claims, Project, Turn
 from app.ports import ProjectRepo
 from app.prompts import system_prompt
 
@@ -42,6 +52,24 @@ class Deps:
     # Tool results, kept as they are produced. The UI renders cards from THESE,
     # not from the model's prose -- restating numbers is how numbers drift.
     collected: list[Project] = field(default_factory=list)
+
+
+def _as_messages(history: list[Turn] | None) -> list[Any] | None:
+    """Our turns, in the shape the framework wants.
+
+    Only text crosses over. Replaying an old tool result would put a price the
+    sheet has since changed back into the prompt, and the model would have no
+    way to know it was stale.
+    """
+    if not history:
+        return None
+    out: list[Any] = []
+    for turn in history:
+        if turn.role == "user":
+            out.append(ModelRequest(parts=[UserPromptPart(content=turn.content)]))
+        else:
+            out.append(ModelResponse(parts=[TextPart(content=turn.content)]))
+    return out
 
 
 def _for_model(p: Project) -> dict[str, Any]:
@@ -221,7 +249,7 @@ class PydanticAgentRuntime:
         auth: str,
         mode: ChatMode,
         repo: ProjectRepo,
-        history: list[Any] | None = None,
+        history: list[Turn] | None = None,
     ) -> AsyncIterator[dict[str, Any]]:
         """Answer one question, emitting events as they happen.
 
@@ -231,27 +259,81 @@ class PydanticAgentRuntime:
         """
         deps = Deps(repo=repo, auth=auth)
         agent = self._agent_for(mode is ChatMode.CLIENT)
+
+        # A queue, not a list drained inside the text loop. stream_text yields
+        # nothing until the model has finished calling tools, so a list would
+        # hold "searching Brampton..." until after the search had finished --
+        # exactly the seconds the message exists to fill. Producing into a queue
+        # and consuming it here lets each event leave as it happens.
+        queue: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue()
+
+        async def on_event(ctx, stream) -> None:
+            async for ev in stream:
+                if isinstance(ev, FunctionToolCallEvent):
+                    queue.put_nowait(
+                        {"type": "tool", "tool": ev.part.tool_name, "args": ev.part.args_as_dict()}
+                    )
+                elif isinstance(ev, FunctionToolResultEvent):
+                    content = getattr(ev.part, "content", None)
+                    queue.put_nowait(
+                        {
+                            "type": "tool_result",
+                            "tool": getattr(ev.part, "tool_name", ""),
+                            "count": len(content) if isinstance(content, list) else 1,
+                        }
+                    )
+
+        async def run() -> None:
+            try:
+                async with agent.run_stream(
+                    question,
+                    deps=deps,
+                    message_history=_as_messages(history),
+                    usage_limits=LIMITS,
+                    event_stream_handler=on_event,
+                ) as result:
+                    async for chunk in result.stream_text(delta=True):
+                        if chunk:
+                            queue.put_nowait({"type": "text", "text": chunk})
+                # Inside the guard: serialising the cards can fail too, and a
+                # stream that ends after the text with no `done` leaves a
+                # conforming client waiting under a finished answer.
+                usage = result.usage
+                queue.put_nowait(
+                    {"type": "projects", "projects": [_for_model(p) for p in deps.collected]}
+                )
+                queue.put_nowait(
+                    {
+                        "type": "done",
+                        "usage": {
+                            "requests": getattr(usage, "requests", 0),
+                            "input_tokens": getattr(usage, "input_tokens", 0),
+                            "output_tokens": getattr(usage, "output_tokens", 0),
+                        },
+                    }
+                )
+            except Exception as exc:
+                # The realtor gets a recoverable message, not a stack trace and
+                # not a half-answer that reads like a complete one (AUR-45).
+                queue.put_nowait({"type": "error", "detail": f"{type(exc).__name__}: {exc}"})
+            finally:
+                queue.put_nowait(None)
+
+        task = asyncio.create_task(run())
         try:
-            async with agent.run_stream(
-                question,
-                deps=deps,
-                message_history=history or None,
-                usage_limits=LIMITS,
-            ) as result:
-                async for chunk in result.stream_text(delta=True):
-                    if chunk:
-                        yield {"type": "text", "text": chunk}
-            # Inside the guard: serialising the cards can fail too, and a stream
-            # that ends after the text with no `done` leaves a conforming client
-            # waiting under a finished answer.
-            cards = [_for_model(p) for p in deps.collected]
-        except Exception as exc:
-            # The realtor gets a recoverable message, not a stack trace and not
-            # a half-answer that reads like a complete one (AUR-45).
-            yield {"type": "error", "detail": f"{type(exc).__name__}: {exc}"}
-            return
-        yield {"type": "projects", "projects": cards}
-        yield {"type": "done"}
+            while True:
+                event = await queue.get()
+                if event is None:
+                    break
+                yield event
+        finally:
+            # A client that closes the tab mid-answer stops consuming, and the
+            # run would otherwise keep going -- and keep billing -- with nobody
+            # listening.
+            if not task.done():
+                task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
 
     async def healthy(self) -> bool:
         """Configuration only, deliberately.

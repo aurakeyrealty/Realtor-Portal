@@ -13,7 +13,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from app.api import container, current_claims
-from app.domain import ChatMode, Claims, Viewer
+from app.domain import MAX_HISTORY_TURNS, ChatMode, Claims, Turn, Viewer
 
 router = APIRouter()
 
@@ -22,6 +22,12 @@ class Ask(BaseModel):
     question: str = Field(min_length=1, max_length=2000)
     mode: ChatMode = ChatMode.REALTOR
     conversation_id: str | None = None  # honoured in Phase 4
+    # Client-supplied until Phase 4 stores conversations server-side and keys
+    # them on conversation_id. It is the caller's own conversation replayed to
+    # the caller's own agent, so it grants no access they do not already have --
+    # but it is still the client asserting what was said, which is why it is
+    # capped and why the server-side store replaces it rather than joining it.
+    history: list[Turn] = Field(default_factory=list, max_length=MAX_HISTORY_TURNS)
 
 
 def _sse(event: dict) -> str:
@@ -68,6 +74,7 @@ async def chat(
                 auth=token,
                 mode=body.mode,
                 repo=repo,
+                history=body.history,
             ):
                 yield _sse(event)
         except Exception as exc:

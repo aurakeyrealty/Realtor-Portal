@@ -206,3 +206,55 @@ def test_unreadable_prices_degrade_rather_than_down(app):
             "/doctor", headers={"Authorization": f"Bearer {make_token('sarath')}"}
         ).json()
     assert body["status"] == "degraded"
+
+
+class LoginPortal:
+    """A portal that accepts one password and refuses everything else."""
+
+    def __init__(self, ok=True, error="invalid id or password"):
+        self.ok, self.error, self.calls = ok, error, []
+
+    async def call(self, action, *, auth=None, **params):
+        self.calls.append((action, params))
+        if action == "login" and self.ok:
+            return {"ok": True, "token": "tok.sig", "name": "Sarath", "role": "realtor"}
+        return {"ok": False, "error": self.error}
+
+    async def healthy(self):
+        return True
+
+    async def aclose(self):
+        return None
+
+
+def test_login_returns_a_token(app):
+    app.state.container.portal = LoginPortal()
+    with TestClient(app) as client:
+        r = client.post("/login", json={"user": "sarath", "password": "hunter2"})
+    assert r.status_code == 200 and r.json()["token"] == "tok.sig"
+
+
+def test_login_passes_the_portals_own_wording_through(app):
+    """'too many attempts' and 'invalid id or password' mean different things
+    to whoever is trying to sign in."""
+    app.state.container.portal = LoginPortal(ok=False, error="too many attempts — try again in a few minutes")
+    with TestClient(app) as client:
+        r = client.post("/login", json={"user": "sarath", "password": "no"})
+    assert r.status_code == 401 and "too many attempts" in r.json()["detail"]
+
+
+def test_login_never_echoes_the_password(app):
+    portal = LoginPortal()
+    app.state.container.portal = portal
+    with TestClient(app) as client:
+        r = client.post("/login", json={"user": "sarath", "password": "hunter2"})
+    assert "hunter2" not in r.text
+    # It goes to the portal once and is not retained anywhere here.
+    assert portal.calls[0][0] == "login"
+
+
+def test_login_requires_both_fields(app):
+    app.state.container.portal = LoginPortal()
+    with TestClient(app) as client:
+        assert client.post("/login", json={"user": "sarath"}).status_code == 422
+        assert client.post("/login", json={"user": "", "password": "x"}).status_code == 422

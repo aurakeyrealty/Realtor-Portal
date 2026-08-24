@@ -52,6 +52,64 @@ typos.
 
 ---
 
+## 2026-08-24 — `aura`, a terminal client with a dev mode
+
+**What.** A CLI that signs in, asks questions, holds a conversation, and in
+`--dev` shows every tool call, its arguments, timings and token usage. Plus the
+service-side pieces it needed: `POST /login`, history on `/chat`, and `tool` /
+`tool_result` events on the stream.
+
+**Why over HTTP rather than in-process.** It hits the real endpoint with a real
+token, so it exercises auth, SSE and the exact contract the PWA will consume. A
+client that reached into the app directly would keep passing while the endpoint
+was broken, which is the one thing a client is for.
+
+**Why it signs in rather than taking a pasted token.** `aura login` prompts,
+posts to `/login`, and stores only the token — at `0600`, never the password.
+Copying a token out of browser storage by hand is the kind of step people skip,
+and skipping it means the tool goes unused. The route passes the portal's own
+wording through: *"too many attempts"* and *"invalid id or password"* mean
+different things to whoever is trying to get in.
+
+**History is text only, in our own shape.** `{role, content}`, deliberately not
+PydanticAI's message type — the wire contract outlives whichever loop runs
+underneath. Tool results are not replayed: a price the sheet has since changed
+would go back into the prompt with no way for the model to know it was stale.
+Client-supplied until Phase 4's server-side store replaces it.
+
+### The streaming fix, which was not cosmetic
+
+Tool events were collected into a list drained inside the text loop — and
+`stream_text` yields nothing until the model has finished calling tools. So the
+buffer could only flush *after* the work it described. Measured live: everything
+landed together at 4300ms. Through an `asyncio.Queue` produced by a background
+task, the tool event now arrives at 2252ms and the first text at 4300ms — two
+seconds of "searching…" where there had been a blank spinner.
+
+That restructure brought a second fix with it: the consumer now cancels the task
+in a `finally`. **A realtor closing the app mid-answer previously left the run
+going, and billing, with nobody reading it.**
+
+### Two smaller ones worth remembering
+
+- **A failed turn must not enter history.** `ask()` returns an empty answer on
+  an error event, and the REPL was recording that as an assistant message with
+  empty content. Some providers reject those outright, so one failure would
+  poison every question after it. Both turns are dropped now — keeping the user
+  turn alone would leave consecutive user messages, which fails the same way.
+- **A subcommand is one bare word.** `aura login details for Great Gulf` used to
+  match on the first word and open a password prompt. Being unexpectedly asked
+  for a password is the least welcome thing a tool can do.
+
+**`--help` needed writing, not generating.** `login` and `logout` are positional,
+so argparse will not advertise them: the original help listed six flags and no
+way to sign in at all. Four tests now assert the epilog covers signing in, the
+interactive commands, every environment variable the code reads, and that the
+service must be running — one of which caught me documenting `login` and
+forgetting `logout`.
+
+---
+
 ## 2026-08-24 — Phase 3: the agent, answering live
 
 PydanticAI over OpenRouter, four tools bound to the redacting repo, `POST /chat`

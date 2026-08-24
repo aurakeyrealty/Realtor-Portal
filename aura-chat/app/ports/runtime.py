@@ -1,7 +1,7 @@
 from collections.abc import AsyncIterator
 from typing import Any, Protocol
 
-from app.domain import ChatMode, Claims
+from app.domain import ChatMode, Claims, Turn
 
 from .projects import ProjectRepo
 
@@ -23,7 +23,7 @@ class AgentRuntime(Protocol):
         auth: str,
         mode: ChatMode,
         repo: ProjectRepo,
-        history: list[Any] | None = None,
+        history: list[Turn] | None = None,
     ) -> AsyncIterator[dict]:
         """Answer one question as a sequence of events.
 

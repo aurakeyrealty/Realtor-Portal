@@ -17,6 +17,27 @@ cp .env.example .env          # then fill TOKEN_SECRET
 project. A mismatch means every realtor's token fails here while still working
 in the portal — the symptom is a universal 401 with a healthy `/health`.
 
+## The CLI
+
+```bash
+.venv/bin/uvicorn app.main:app --reload      # in one terminal
+.venv/bin/aura login                         # portal ID + password, once
+.venv/bin/aura                               # interactive
+.venv/bin/aura "detached under $1M"          # one-shot
+.venv/bin/aura --dev "…"                     # tools, timings, token usage
+.venv/bin/aura --client "…"                  # as a buyer would see it
+```
+
+It goes over HTTP, like the PWA will — same login, same token, same SSE. A CLI
+that reached into the app in-process would keep working while the endpoint was
+broken, which is the one thing a client is meant to catch.
+
+`login` stores only the returned token, in `~/.aura/session.json` at `0600`.
+Never the password. `--token` and `AURA_TOKEN` override it.
+
+In the REPL: `/new` clears the conversation, `/mode` switches realtor↔client,
+`/dev` toggles the detailed view.
+
 ## Layout
 
 | Path | Rule |
