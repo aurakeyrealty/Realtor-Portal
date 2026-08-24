@@ -1,7 +1,9 @@
 from collections.abc import AsyncIterator
-from typing import Protocol
+from typing import Any, Protocol
 
 from app.domain import ChatMode, Claims
+
+from .projects import ProjectRepo
 
 
 class AgentRuntime(Protocol):
@@ -20,7 +22,15 @@ class AgentRuntime(Protocol):
         claims: Claims,
         auth: str,
         mode: ChatMode,
-        history: list[dict],
-    ) -> AsyncIterator[dict]: ...
+        repo: ProjectRepo,
+        history: list[Any] | None = None,
+    ) -> AsyncIterator[dict]:
+        """Answer one question as a sequence of events.
+
+        `repo` is passed in rather than held, because it is built per viewer:
+        the runtime must never be able to reach project data the caller has not
+        already narrowed to this audience.
+        """
+        ...
 
     async def healthy(self) -> bool: ...

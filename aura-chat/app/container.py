@@ -8,6 +8,7 @@ Enforced by tests/test_layering.py, not by memory.
 
 from dataclasses import dataclass
 
+from app.adapters.agent_pydantic import PydanticAgentRuntime
 from app.adapters.auth_portal_hmac import PortalHmacAuthVerifier
 from app.adapters.portal_client import PortalClient
 from app.adapters.projects_exec import ExecApiProjectRepo
@@ -25,7 +26,7 @@ class Container:
     projects: ProjectRepo | None = None
     store: ConversationStore | None = None  # Phase 4
     documents: DocumentIndex | None = None  # Phase 5
-    runtime: AgentRuntime | None = None  # Phase 3
+    runtime: AgentRuntime | None = None
 
     def projects_for(self, viewer: Viewer) -> ProjectRepo:
         """The project repo as one viewer may see it.
@@ -50,4 +51,9 @@ def build(settings: Settings | None = None) -> Container:
     # project_source is read here and nowhere else. Adding a Postgres adapter
     # later means one more branch in this function.
     projects = ExecApiProjectRepo(portal)
-    return Container(settings=cfg, portal=portal, auth=auth, projects=projects)
+    runtime = PydanticAgentRuntime(
+        api_key=cfg.openrouter_api_key,
+        model_name=cfg.llm_model,
+        max_tokens=cfg.llm_max_tokens,
+    )
+    return Container(settings=cfg, portal=portal, auth=auth, projects=projects, runtime=runtime)

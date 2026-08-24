@@ -52,6 +52,56 @@ typos.
 
 ---
 
+## 2026-08-24 — Phase 3: the agent, answering live
+
+PydanticAI over OpenRouter, four tools bound to the redacting repo, `POST /chat`
+streaming SSE. Verified against real Aura data with a real realtor token.
+
+**Cards come from tool results, never from the prose.** If the model says "around
+$1.2M" about an $899,900 project, the card still says $899,900. Restating numbers
+is how they drift between the sheet and the buyer.
+
+**The runtime is handed a repo, it does not hold one.** The client sends `mode`,
+but nothing downstream trusts it beyond choosing a `Viewer`; the redacting repo
+is built in the endpoint, so the agent cannot widen its own access. Confirmed:
+in Client Mode `"4%"` never appears anywhere in the model transcript.
+
+**What the prompt carries vs what the code carries.** The prompt holds rules the
+model is *asked* to follow — tone, tool choice, what to say when it cannot
+answer. Redaction, read-only and the result cap are not in it, because a prompt
+instruction is a request and this agent answers questions about other people's
+money.
+
+### Two bugs that only live testing could find
+
+1. **`max_tokens` defaulted to 65535.** Providers advertise their whole context,
+   and OpenRouter reserves credit against that number *before* the call — so
+   every request was refused 402 for lack of credit to cover an answer nobody
+   wanted. Capped at 1500, which is generous for a reply the prompt asks to keep
+   to two or three sentences.
+2. **`get_project` accepted only ids.** A realtor naming a project hands over a
+   *name*; the model passed the name, got nothing, and told them their own
+   project did not exist. "What's the deposit for X?" is among the commonest
+   questions there is.
+
+The second fix is the more interesting one. Resolving names in the tool was not
+enough: told to search when a lookup missed, the model often did not. So the tool
+now does the search itself and returns the candidates — two Brampton projects
+really are both called "Mayfield Village", and the realtor needs to be asked
+which, not told neither exists.
+
+**That is the same lesson as the redaction work.** Instructing a model is a
+request; handing it the data is a guarantee. Anything that must hold belongs in
+code, and "must hold" includes not denying that a brokerage's own inventory
+exists.
+
+**Known gap.** "I could not find any detached homes under $1M" does not
+distinguish *no matches* from *no prices recorded anywhere*, and a realtor could
+reasonably read it as the former. Mostly self-resolving once the commercial
+columns are filled, but the tool could say which it is.
+
+---
+
 ## 2026-08-24 — Redaction became a property of the repo, not a step
 
 **What.** `Viewer` (role × mode), `Project.for_viewer()`, and a

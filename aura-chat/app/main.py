@@ -6,6 +6,7 @@ from fastapi import FastAPI
 
 from app import container as container_mod
 from app.api import router
+from app.chat import router as chat_router
 
 
 @asynccontextmanager
@@ -30,6 +31,7 @@ async def lifespan(app: FastAPI):
 def create_app() -> FastAPI:
     app = FastAPI(title="Aura Chat", version="0.1.0", lifespan=lifespan)
     app.include_router(router)
+    app.include_router(chat_router)
     return app
 
 

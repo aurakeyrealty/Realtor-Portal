@@ -22,6 +22,12 @@ class Settings(BaseSettings):
     # --- model (Phase 3) --------------------------------------------------
     openrouter_api_key: str = ""
     llm_model: str = "google/gemini-2.5-flash"
+    # A ceiling on the answer, not a target. Left unset, providers advertise
+    # their whole context as max_tokens (65k on Gemini Flash), which OpenRouter
+    # bills against up front -- a request can be refused for lack of credit to
+    # cover an answer nobody wanted. Aura is told to reply in two or three
+    # sentences, so this is generous even for a long comparison.
+    llm_max_tokens: int = 1500
 
     # --- storage (Phase 4) ------------------------------------------------
     database_url: str = ""

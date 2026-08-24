@@ -56,9 +56,30 @@ async def search_projects(
     return await repo.search(filters, auth=auth)
 
 
-async def get_project(repo: ProjectRepo, project_id: str, *, auth: str) -> Project | None:
-    """One project's current record (AUR-26)."""
-    return await repo.get(project_id, auth=auth)
+async def get_project(repo: ProjectRepo, ref: str, *, auth: str) -> Project | None:
+    """One project's current record, by id or by exact name (AUR-26).
+
+    A realtor naming a project is not handing over an id, and a model asked
+    "what's the deposit for Reva Westfield?" will pass the name. Refusing that
+    made Aura answer "no such project" about projects that plainly exist, so
+    the name is resolved here rather than left to the caller to get right.
+
+    An ambiguous name returns None, never a guess. Two Brampton projects are
+    both called "Mayfield Village"; picking one would produce a confident answer
+    about the wrong builder's deposit schedule.
+    """
+    ref = ref.strip()
+    if not ref:
+        return None
+    found = await repo.get(ref, auth=auth)
+    if found is not None:
+        return found
+    # Search rather than scan: filtering belongs behind the port.
+    candidates = await repo.search(
+        ProjectFilters(query=ref, include_unavailable=True, limit=MAX_RESULTS), auth=auth
+    )
+    exact = [p for p in candidates if p.name.strip().lower() == ref.lower()]
+    return exact[0] if len(exact) == 1 else None
 
 
 async def compare_projects(
