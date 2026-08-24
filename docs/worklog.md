@@ -13,6 +13,67 @@ formatting.
 
 ---
 
+## 2026-08-24 — Aura Chat Phase 2: tools over live data
+
+**What.** `Ai.js` and one `aiindex` action in the portal; `ProjectRepo` over it;
+price/deposit/date parsers; the filter rules; four tools. 116 tests.
+
+**Why one big payload instead of a filtered query.** The service caches the whole
+index for five minutes and filters in Python, so a busy conversation costs one
+portal fetch per window rather than one per question. Apps Script runtime is a
+single daily budget shared with the realtors' own app; protecting it is why Aura
+Chat runs outside Apps Script at all.
+
+**Why a separate cache key.** `index_api` backs the portal's Cities and Focus
+screens and sits on the Home hot path. Both indexes are built from the same
+per-city `proj_<CITY>` entries, so the sheet reads are shared even though the
+payloads are not.
+
+**Decisions taken here:**
+
+- **Extended `FIELD_KEYS` rather than reading the tabs twice.** `getProjects_`
+  now emits the commercial columns too. Additive: an unmapped column reads as
+  empty, so the 37 tabs without them behave exactly as before.
+- **Slug ids as scaffolding.** A project with no `PROJECT ID` gets
+  `city:project-name`, so deep links and comparison work while Sudhanshu fills
+  the column. **Renaming a project changes its id** and any link minted
+  beforehand stops resolving — the accepted cost of shipping before the data.
+  A real id always wins.
+- **Unavailable projects travel, and are filtered in Python.** The portal's own
+  index drops them because its screens list what is for sale. Aura still has to
+  answer "what happened to X?", so `search` hides them and `get` finds them.
+- **The cache is in-process, in the adapter.** Not in `tools.py` (a Postgres
+  adapter would not want it) and not in Postgres (phase 4). Known limit: on more
+  than one worker each keeps its own copy, so the portal sees one fetch per
+  worker per window. At this team's size we do not scale out.
+
+**Two traps now guarded in code:**
+
+- `FIELD_KEYS` binds each field to the **first** header containing its keyword,
+  so `PRICE` would have matched ONTARIO's `PRICE RANGE`. The keyword is the whole
+  `STARTING PRICE`. Comment sits on the table.
+- A refused `aiindex` **raises** rather than caching an empty list. Caching a
+  refusal would serve "no projects found" for five minutes, which a realtor
+  cannot tell apart from an empty sheet.
+
+**The rule the parsers follow: never guess.** `parse_money("1.2")` returns None
+rather than choosing between $1.20 and $1.2M, and an unpriced project never
+satisfies a price filter — it is *unknown*, not cheap. Letting it through is
+precisely how an answer ends up asserting something the sheet never said. Two
+corrections are deliberate exceptions, both documented at the call site: a range
+yields its low end, and a deposit of `0.1` is read as 10% (a percent-formatted
+cell displaying as a fraction).
+
+Unparseable prices are **counted**, not logged: a spike means Sudhanshu has
+started writing them a new way, and `/doctor` should say so before a realtor
+finds out by getting a wrong answer.
+
+**Not verified end to end.** `aiindex` is wired (`dev/verify.mjs` resolves the
+dispatch target) and gated, but reading real rows needs a realtor token, which
+this session did not have. First run with a real token is the outstanding check.
+
+---
+
 ## 2026-08-24 — `dev/verify.mjs` learned extension globs; `Audit.js` is a server file
 
 **What.** Two fixes to the stray-root-file check: `Audit.js` added to

@@ -35,14 +35,19 @@ class Project(BaseModel):
 
     # classification
     property_type: str = ""
+    address: str = ""
     categories: list[str] = Field(default_factory=list)  # detached/semi/townhome/condo
     status: str = ""
     is_focus: bool = False
+    # "Not Available" in the sheet. Carried rather than dropped: search hides
+    # these, but "what happened to X?" still has to find one.
+    is_available: bool = True
 
     # commercial
     starting_price: int | None = None
     max_price: int | None = None
     bedrooms: str = ""
+    min_bedrooms: int | None = None  # smallest count offered, for "3+ bedrooms"
     deposit_pct: float | None = None
     deposit_schedule: str = ""
     incentives: str = ""

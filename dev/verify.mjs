@@ -4,7 +4,7 @@ import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import vm from 'node:vm';
 
 const DIR = '/Users/sarathkumar/Projects/2Creative/Realtor-Portal/';
-const SERVER = ['Core.js', 'Sheets.js', 'Team.js', 'External.js'];
+const SERVER = ['Core.js', 'Sheets.js', 'Team.js', 'External.js', 'Ai.js'];
 let fail = 0;
 const ok = (c, m) => { console.log((c ? '  PASS  ' : '  FAIL  ') + m); if (!c) fail++; };
 
@@ -186,7 +186,7 @@ function fakeSheet(rows, links) {
      has to be ignored explicitly, and a new folder fails this check the day it
      appears rather than the day someone pushes. */
   const SERVER_FILES = ['App.html', 'Styles.html', 'Script.html',
-                        'Core.js', 'Sheets.js', 'Team.js', 'External.js', 'Audit.js',
+                        'Core.js', 'Sheets.js', 'Team.js', 'External.js', 'Ai.js', 'Audit.js',
                         'appsscript.json'];
   const stray = readdirSync(DIR)
     .filter((n) => !n.startsWith('.'))

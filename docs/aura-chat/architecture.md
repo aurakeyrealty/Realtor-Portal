@@ -216,7 +216,7 @@ Each phase is independently reviewable and has a stated done-signal.
 `{"ok":false,"error":"login required"}` — the data plane works, redirects included.
 `/health` → `{"ok":true,"checks":{"app":true,"auth_configured":true,"portal":true,"model":null}}`.
 
-### Phase 2 — Tools over live data  (AUR-15, 16, 17, 19, 25, 26, 28, 34)
+### Phase 2 — Tools over live data  (AUR-16, 17, 19, 25, 26, 27, 28) ✅ **done 2026-08-24**
 
 - New Apps Script action `aiindex` (read-only)
 - `filters.py`: TTL cache + numeric/categorical filtering
@@ -226,6 +226,10 @@ Each phase is independently reviewable and has a stated done-signal.
 - Read-only by construction: no tool takes a write path
 
 **Done:** a direct call to `searchProjects(city="BRAMPTON", cats=["detached"])` returns real Aura projects. No model involved yet.
+
+**Verified 2026-08-24:** 116 tests green; `dev/verify.mjs` resolves `aiindex` to `getAiIndex_`; the action is live and token-gated. Reading real rows needs a realtor token, which was not available in this session — that is the one outstanding check.
+
+AUR-15 (tool router) and AUR-34 (natural-language brief → one correct call) moved to Phase 3: both need the model.
 
 ### Phase 3 — Agent + chat UI → **Day 1 gate**  (AUR-33, 35, 41–47, 96)
 

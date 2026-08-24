@@ -1,0 +1,156 @@
+"""The containment boundary: sheet shapes in, domain objects out.
+
+If any of these start needing knowledge of a column name outside this file, the
+"move to a database" migration has stopped being a one-file change.
+"""
+
+import pytest
+
+from app.adapters.portal_client import PortalError
+from app.adapters.projects_exec import ExecApiProjectRepo
+from app.domain import ProjectFilters
+
+AUTH = "tok"
+
+
+def row(**over) -> dict:
+    base = {
+        "city": "BRAMPTON", "row": 3, "id": "AK-0001", "project": "Reva Westfield",
+        "builder": "Great Gulf", "type": "Townhome", "cats": ["townhome"],
+        "status": "Available", "hidden": False, "focus": False,
+        "occupancy": "2027", "address": "12 Main St",
+        "price": "$899,900", "maxprice": "", "beds": "3-4",
+        "depositpct": "10%", "depositsched": "5% on signing", "incentives": "Free upgrades",
+        "lastupdated": "2026-08-24", "sourceurl": "https://example/x",
+        "website_url": "https://public/x", "drive_url": "", "broker_url": "https://portal/x",
+        "login": "agent@builder", "office": "905", "contact": "Rep", "fub": "tpl",
+    }
+    base.update(over)
+    return base
+
+
+class StubPortal:
+    def __init__(self, rows=None, payload=None):
+        self.rows = rows if rows is not None else [row()]
+        self.payload = payload
+        self.fetches = 0
+
+    async def call(self, action, *, auth=None, **params):
+        self.fetches += 1
+        if self.payload is not None:
+            return self.payload
+        return {"updated": "now", "count": len(self.rows), "rows": self.rows}
+
+    async def healthy(self):
+        return True
+
+
+def repo(portal, **kw) -> ExecApiProjectRepo:
+    return ExecApiProjectRepo(portal, **kw)
+
+
+async def test_a_sheet_row_becomes_a_domain_project():
+    out = await repo(StubPortal()).search(ProjectFilters(), auth=AUTH)
+    p = out[0]
+    assert p.id == "AK-0001"
+    assert p.name == "Reva Westfield"
+    assert p.starting_price == 899_900   # parsed from "$899,900"
+    assert p.min_bedrooms == 3           # parsed from "3-4"
+    assert p.deposit_pct == 10.0
+    assert p.last_updated.isoformat() == "2026-08-24"
+
+
+async def test_a_missing_project_id_falls_back_to_a_slug():
+    """Sudhanshu is filling the real column now; deep links work meanwhile."""
+    out = await repo(StubPortal([row(id="")])).search(ProjectFilters(), auth=AUTH)
+    assert out[0].id == "brampton:reva-westfield"
+
+
+async def test_a_real_project_id_always_wins_over_the_slug():
+    out = await repo(StubPortal([row(id="AK-0042")])).search(ProjectFilters(), auth=AUTH)
+    assert out[0].id == "AK-0042"
+
+
+async def test_rows_without_a_name_or_city_are_dropped():
+    portal = StubPortal([row(project=""), row(city=""), row()])
+    assert len(await repo(portal).search(ProjectFilters(), auth=AUTH)) == 1
+
+
+async def test_columns_a_tab_does_not_have_read_as_absent_not_wrong():
+    """Every tab but BRAMPTON lacks the commercial columns today."""
+    bare = {k: "" for k in row()}
+    bare.update({"city": "AJAX", "project": "Somewhere", "cats": [], "hidden": False})
+    out = await repo(StubPortal([bare])).search(ProjectFilters(), auth=AUTH)
+    p = out[0]
+    assert p.starting_price is None and p.deposit_pct is None and p.last_updated is None
+
+
+async def test_the_index_is_cached_across_searches():
+    portal = StubPortal()
+    r = repo(portal)
+    await r.search(ProjectFilters(), auth=AUTH)
+    await r.search(ProjectFilters(city="BRAMPTON"), auth=AUTH)
+    await r.get("AK-0001", auth=AUTH)
+    assert portal.fetches == 1
+
+
+async def test_an_expired_cache_refetches():
+    portal = StubPortal()
+    r = repo(portal, ttl_s=0.0)
+    await r.search(ProjectFilters(), auth=AUTH)
+    await r.search(ProjectFilters(), auth=AUTH)
+    assert portal.fetches == 2
+
+
+async def test_invalidate_forces_a_refetch():
+    portal = StubPortal()
+    r = repo(portal)
+    await r.search(ProjectFilters(), auth=AUTH)
+    r.invalidate()
+    await r.search(ProjectFilters(), auth=AUTH)
+    assert portal.fetches == 2
+
+
+async def test_a_refused_index_raises_rather_than_caching_an_empty_set():
+    """Caching a refusal would serve 'no projects found' for five minutes --
+    indistinguishable, to a realtor, from the sheet being empty."""
+    r = repo(StubPortal(payload={"ok": False, "error": "login required"}))
+    with pytest.raises(PortalError):
+        await r.search(ProjectFilters(), auth=AUTH)
+
+
+async def test_unparsed_prices_are_counted_for_diagnosis():
+    """A spike means Sudhanshu has started writing prices a new way, and we
+    should hear it from /doctor rather than from a wrong answer."""
+    portal = StubPortal([row(price="ask us"), row(price="$1,000,000")])
+    r = repo(portal)
+    await r.search(ProjectFilters(), auth=AUTH)
+    assert r.unparsed_prices == 1
+    assert r.total_rows == 2
+
+
+async def test_get_finds_an_unavailable_project_that_search_hides():
+    """'What happened to X?' still needs an answer."""
+    portal = StubPortal([row(hidden=True)])
+    r = repo(portal)
+    assert await r.search(ProjectFilters(), auth=AUTH) == []
+    assert (await r.get("AK-0001", auth=AUTH)) is not None
+
+
+async def test_recent_returns_the_most_recently_updated_first():
+    portal = StubPortal(
+        [
+            row(id="old", project="Old", lastupdated="2026-01-01"),
+            row(id="new", project="New", lastupdated="2026-08-24"),
+            row(id="none", project="Undated", lastupdated=""),
+        ]
+    )
+    out = await repo(portal).recent(365, auth=AUTH)
+    assert [p.id for p in out] == ["new", "old"]
+
+
+async def test_recent_says_nothing_when_the_column_is_unfilled():
+    """An empty answer is correct here. Falling back to cache timestamps would
+    invent a freshness the sheet never claimed."""
+    portal = StubPortal([row(lastupdated="")])
+    assert await repo(portal).recent(7, auth=AUTH) == []

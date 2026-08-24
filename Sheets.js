@@ -95,6 +95,13 @@ function getProjects_(city) {
       occupancy: txt(d2, 'occupancy'), login: txt(d2, 'login'), office: txt(d2, 'office'),
       contact: txt(d2, 'contact'), fub: txt(d2, 'fub'), status: status, live: txt(d2, 'live'),
       hidden: /not\s*avail|unavailable/i.test(String(status).replace(/[-_]/g, ' ')),
+      /* Commercial columns, for Aura Chat. Empty on any tab that does not carry
+         them yet, which is every tab but BRAMPTON at the time of writing. The
+         portal's own screens ignore fields they do not read. */
+      id: txt(d2, 'id'), price: txt(d2, 'price'), maxprice: txt(d2, 'maxprice'),
+      beds: txt(d2, 'beds'), depositpct: txt(d2, 'depositpct'), depositsched: txt(d2, 'depositsched'),
+      incentives: txt(d2, 'incentives'), lastupdated: txt(d2, 'lastupdated'),
+      address: txt(d2, 'address'), sourceurl: txt(d2, 'sourceurl'),
       broker_url:  map.broker  ? cellUrl_(bR[r][0], bF[r][0], d2[map.broker - 1])  : '',
       drive_url:   map.drive   ? cellUrl_(dR[r][0], dF[r][0], d2[map.drive - 1])   : '',
       website_url: map.website ? cellUrl_(wR[r][0], wF[r][0], d2[map.website - 1]) : ''

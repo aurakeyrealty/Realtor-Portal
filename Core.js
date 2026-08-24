@@ -71,10 +71,25 @@ var HEADER_ROW = 2, DATA_START = 3;       // city / school tabs: headers row 2, 
 var HEADER_ROWS = { 'main:School Rankings': 2 };
 
 // City-tab column keywords (from the portal's FIELD_KEYS)
+/* buildColMap_ binds each field to the FIRST header containing any of its
+   keywords, so a keyword that is a substring of another header steals the wrong
+   column. Two traps live here:
+     - 'PRICE' would match ONTARIO's 'PRICE RANGE', so the keyword is the whole
+       'STARTING PRICE'.
+     - 'PROJECT ID' contains 'PROJECT', which is harmless only because the ID
+       column is appended to the RIGHT of the project name. Added at column A it
+       would make every project render as an id -- and would stop getCities_
+       recognising the tab at all. */
 var FIELD_KEYS = {
   project:['PROJECT'], builder:['BUILDER'], type:['TYPE'], occupancy:['OCCUPANCY','OCCUPAN'],
   broker:['BROKER'], drive:['UNBRANDED'], login:['LOGIN'], office:['OFFICE'], contact:['CONTACT'], fub:['FUB'],
-  status:['STATUS'], live:['LIVE ON','ON WEBSITE'], website:['LIVE LINK','LINK']
+  status:['STATUS'], live:['LIVE ON','ON WEBSITE'], website:['LIVE LINK','LINK'],
+  /* Added for Aura Chat. Absent from most tabs today: Sudhanshu is filling them
+     for the priority projects, starting with BRAMPTON. An unmapped column reads
+     as empty, so a tab without them behaves exactly as before. */
+  id:['PROJECT ID'], price:['STARTING PRICE'], maxprice:['MAXIMUM PRICE','MAX PRICE'],
+  beds:['BEDROOM'], depositpct:['DEPOSIT %','DEPOSIT PERCENT'], depositsched:['DEPOSIT SCHEDULE'],
+  incentives:['INCENTIVE'], lastupdated:['LAST UPDATED'], address:['ADDRESS'], sourceurl:['SOURCE URL']
 };
 
 var ALLOW = {
@@ -399,6 +414,9 @@ function app(action, p) {
     case 'fsschools':     return fsSchools_(p.board, p.id || p.addressId, p.label || p.addressLabel, p.num || p.houseNumber);
     case 'login':         return handleLogin_(p);
     case 'session':       return handleSession_(p);
+    /* Aura Chat's only read. Token-gated like everything else, so the AI
+       service sees exactly what the realtor whose token it forwards would. */
+    case 'aiindex':       return getAiIndex_();
     case 'tabs':          return { sheets: allowedTabs_() };
     case 'tab':           return readTab_(p.name || '', p.sheet || '', p.headerRow || '');
     case 'mydeals':       return getMyDealsPayload_(p);
