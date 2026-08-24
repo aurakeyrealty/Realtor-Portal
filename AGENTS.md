@@ -173,6 +173,7 @@ if you touch it:
 
 | Doc | What's in it |
 |---|---|
+| [how-it-works.md](docs/aura-chat/how-it-works.md) | **Start here.** The whole system end to end: boot, every file, one chat interaction traced |
 | [invariants.md](docs/aura-chat/invariants.md) | The eight rules that break security or cost an afternoon |
 | [working-rules.md](docs/aura-chat/working-rules.md) | Working rules, Python conventions, definition of done |
 | [roadmap.md](docs/aura-chat/roadmap.md) | Phase status, and the names already chosen for unwritten files |

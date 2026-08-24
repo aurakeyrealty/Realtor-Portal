@@ -1,8 +1,12 @@
 # Aura Chat
 
 AI assistant for Aura Key Realty realtors. Reads the portal's project data over
-the existing Apps Script API; stores its own conversations. Design and rationale:
-[`../docs/aura-chat/architecture.md`](../docs/aura-chat/architecture.md).
+the existing Apps Script API; stores its own conversations.
+
+**New here? Read [how-it-works.md](../docs/aura-chat/how-it-works.md)** — the whole
+system from process start to a finished answer, with every file explained.
+Design rationale and rejected alternatives are in
+[architecture.md](../docs/aura-chat/architecture.md).
 
 ## Run
 

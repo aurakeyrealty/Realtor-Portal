@@ -52,6 +52,41 @@ typos.
 
 ---
 
+## 2026-08-24 — A walkthrough of the whole system
+
+**What.** [`how-it-works.md`](aura-chat/how-it-works.md) — 1,049 lines, twelve
+diagrams, ordered as a story: an empty process, then boot, then every file, then
+one chat interaction traced end to end, then the other flows, the CLI, the
+tests, and a troubleshooting map.
+
+**Why it is separate from `architecture.md`.** That doc answers *why this shape*
+— the options weighed, the ones rejected. This one answers *how it works*, for
+someone who has already accepted the shape and needs to change something. Merging
+them would make both worse: a person debugging a 401 at 11pm does not want to
+read why Cloudflare Workers lost.
+
+**What the second pass changed**, because the first draft was written partly from
+memory and it showed:
+
+- **The `/doctor` section was wrong.** Check order was off, and it omitted the
+  redaction path for unverified callers. Worse, it missed the point: `portal_auth`
+  and `token_verification` are a *pair*, and reading one against the other is what
+  separates a mismatched `TOKEN_SECRET` from a stale session — the two failures
+  that are indistinguishable from outside. That is now a diagram.
+- **No method-level index**, which was half of what was asked for. A file list
+  tells you nothing when you are hunting for where a thing happens.
+- **The CLI was not traced at all**, including the login sequence — the one flow
+  that touches a password.
+- **Nothing on testing or on debugging.** Part VIII is a symptom → cause → file
+  table with a decision tree, and is likely to get more use than any other part.
+
+**The rule that emerged from doing it:** explain mechanisms, not structure. A
+list of files is a directory listing. Why a queue and not a list, why filtering
+runs before redaction, why `_to_project` is a boundary — those are the decisions
+that look arbitrary in six months, and they are what a walkthrough is for.
+
+---
+
 ## 2026-08-24 — `aura`, a terminal client with a dev mode
 
 **What.** A CLI that signs in, asks questions, holds a conversation, and in
