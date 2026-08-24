@@ -52,6 +52,40 @@ typos.
 
 ---
 
+## 2026-08-24 — Four parsing and freshness bugs, from review
+
+All four produced **wrong answers rather than errors**, which is the failure mode
+this project can least afford, and none had a test.
+
+1. **`recent()` measured its window from the newest row, not from today.** A sheet
+   untouched for six weeks would still report its newest projects as "what changed
+   this week" — freshness the sheet never claimed — and an empty result was
+   impossible, so "nothing changed recently" could never be answered.
+2. **A price range in a single column lost its high end.** The `parse_price_range`
+   fallback was guarded by `if low is None`, but `parse_money`'s regex is
+   unanchored and happily returns the first number in `"$800,000 - $1,400,000"`.
+   The guard could never fire. A project selling up to $1.4M was excluded from an
+   "at least $1M" search. The price cell is now read as a range in every case.
+3. **`parse_percent` turned `"1%"` into 100%.** The correction for percent-formatted
+   cells displaying as fractions fired on any value ≤ 1 without noticing that a
+   percent sign had already said what the value was. A 1% deposit became a 100%
+   one: excluded from every "max 10% deposit" search, and if shown, telling a
+   realtor the buyer pays the whole price up front.
+4. **`TBD` was counted as a parser failure.** `parse_money` returns None for
+   placeholders by design, so 40 projects correctly marked "TBD" would have
+   reported as 40 unreadable prices and pushed `/doctor` to degraded — burying the
+   one signal that check exists to give.
+
+**The shape shared by 1, 2 and 4:** each is a value that is *absent or unknown*
+being treated as a value that is *known*. `is_blank` is now public precisely so
+callers can tell "nobody filled this in" apart from "the parser could not read
+this" — they both produce None and mean opposite things about the data's health.
+
+**Worth noting:** the existing 120 tests passed against all four. Coverage of the
+happy path says nothing about whether the edges are right.
+
+---
+
 ## 2026-08-24 — Phase 2 verified against live data
 
 `/doctor` green end to end with a real realtor token: 246 projects read from the

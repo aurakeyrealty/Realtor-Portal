@@ -25,8 +25,17 @@ _NUMBER = re.compile(r"(\d[\d,]*(?:\.\d+)?)\s*([KkMm])?")
 _BLANK = {"", "-", "--", "n/a", "na", "tbd", "tba", "coming soon", "call", "ask", "?"}
 
 
-def _is_blank(raw: object) -> bool:
+def is_blank(raw: object) -> bool:
+    """Does this cell mean "nobody has filled this in" rather than a value?
+
+    Public because callers need to tell an unfilled cell apart from one the
+    parser could not read: they look identical (both parse to None) and mean
+    opposite things about the data's health.
+    """
     return str(raw or "").strip().lower() in _BLANK
+
+
+_is_blank = is_blank  # the module's own call sites
 
 
 def parse_money(raw: object) -> int | None:
@@ -73,22 +82,25 @@ def parse_price_range(raw: object) -> tuple[int | None, int | None]:
 
 
 def parse_percent(raw: object) -> float | None:
-    """A deposit cell to a percentage number: 10% -> 10.0, 0.1 -> 10.0.
+    """A deposit cell to a percentage number: 10% -> 10.0, 0.1 -> 10.0, 1% -> 1.0.
 
-    The 0.1 case is a spreadsheet displaying a percent-formatted cell as a
-    fraction. Treating it as 0.1% would put every project under a "max 10%
-    deposit" filter, so the small-value branch is a correction, not a guess.
+    A bare value at or below 1 is a spreadsheet displaying a percent-formatted
+    cell as a fraction; reading 0.1 as 0.1% would put every project under a
+    "max 10% deposit" filter. But a value written WITH a percent sign already
+    says what it is, so "1%" is one percent and must not be multiplied -- a
+    100% deposit tells a realtor the buyer pays the whole price up front.
     """
     if _is_blank(raw):
         return None
-    match = _NUMBER.search(str(raw))
+    text = str(raw)
+    match = _NUMBER.search(text)
     if not match:
         return None
     try:
         value = float(match.group(1).replace(",", ""))
     except ValueError:
         return None
-    if value <= 1:
+    if value <= 1 and "%" not in text:
         value *= 100
     if not 0 < value <= 100:
         return None

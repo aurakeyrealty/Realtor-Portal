@@ -7,10 +7,12 @@ writing a sibling adapter rather than touching tools, prompts or the API.
 """
 
 import time
+from datetime import date
 
 from app.domain import Project, ProjectFilters, matches, sort_key
 
 from .parsing import (
+    is_blank,
     parse_date,
     parse_min_bedrooms,
     parse_money,
@@ -62,9 +64,12 @@ class ExecApiProjectRepo:
         rows = await self._index(auth)
         dated = [p for p in rows if p.last_updated is not None and p.is_available]
         dated.sort(key=lambda p: p.last_updated, reverse=True)
-        if not dated:
-            return []
-        cutoff = dated[0].last_updated.toordinal() - days
+        # Anchored to today, deliberately. Measuring from the newest row instead
+        # would mean a sheet nobody has touched for six weeks still reports its
+        # newest projects as "what changed this week" -- freshness the sheet
+        # never claimed -- and would make an empty result impossible, so
+        # "nothing changed recently" could never be answered.
+        cutoff = date.today().toordinal() - days
         return [p for p in dated if p.last_updated.toordinal() >= cutoff][:limit]
 
     async def refresh(self, *, auth: str) -> int:
@@ -111,7 +116,11 @@ class ExecApiProjectRepo:
             project = self._to_project(raw)
             if project is None:
                 continue
-            if raw.get("price") and project.starting_price is None:
+            # "TBD" and "Call" are correct data entry, and the parser returns
+            # None for them by design. Counting those would bury the signal this
+            # exists to give -- a real change in how prices are written -- under
+            # noise from values already handled exactly as intended.
+            if not is_blank(raw.get("price")) and project.starting_price is None:
                 unparsed += 1
             parsed.append(project)
         self._cached = parsed
@@ -129,12 +138,15 @@ class ExecApiProjectRepo:
         if not name or not city:
             return None
 
-        low = parse_money(raw.get("price"))
+        # Some tabs carry one PRICE RANGE column instead of two, so the price
+        # cell is read as a range in every case. Asking parse_money first and
+        # falling back only when it fails would never reach the fallback: its
+        # regex is unanchored, so it happily returns the first number in
+        # "$800,000 - $1,400,000" and the high end would be lost.
+        low, span_high = parse_price_range(raw.get("price"))
         high = parse_money(raw.get("maxprice"))
-        if low is None:
-            # Some tabs carry one PRICE RANGE column instead of two.
-            low, span_high = parse_price_range(raw.get("price"))
-            high = high if high is not None else span_high
+        if high is None:
+            high = span_high
 
         return Project(
             # A real PROJECT ID always wins; the slug is scaffolding until

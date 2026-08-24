@@ -178,3 +178,63 @@ async def test_refresh_asks_the_portal_to_rebuild_too():
 
     await repo(Recording()).refresh(auth=AUTH)
     assert seen[0].get("fresh") is True
+
+
+async def test_recent_is_measured_from_today_not_from_the_newest_row():
+    """A sheet nobody has touched for months has no recent changes.
+
+    Anchoring the window to the newest row instead would report six-week-old
+    edits as "what changed this week" -- freshness the sheet never claimed --
+    and would make an empty answer impossible.
+    """
+    from datetime import date, timedelta
+
+    old = (date.today() - timedelta(days=100)).isoformat()
+    older = (date.today() - timedelta(days=104)).isoformat()
+    portal = StubPortal(
+        [row(id="a", project="A", lastupdated=old), row(id="b", project="B", lastupdated=older)]
+    )
+    assert await repo(portal).recent(7, auth=AUTH) == []
+
+
+async def test_recent_still_finds_genuinely_recent_changes():
+    from datetime import date, timedelta
+
+    portal = StubPortal(
+        [
+            row(id="new", project="New", lastupdated=date.today().isoformat()),
+            row(id="old", project="Old", lastupdated=(date.today() - timedelta(days=90)).isoformat()),
+        ]
+    )
+    assert [p.id for p in await repo(portal).recent(7, auth=AUTH)] == ["new"]
+
+
+async def test_a_range_in_one_price_column_keeps_both_ends():
+    """ONTARIO carries PRICE RANGE in a single column. Losing the high end
+    excludes a project selling up to $1.4M from an 'at least $1M' search."""
+    portal = StubPortal([row(price="$800,000 - $1,400,000", maxprice="")])
+    p = (await repo(portal).search(ProjectFilters(), auth=AUTH))[0]
+    assert p.starting_price == 800_000
+    assert p.max_price == 1_400_000
+
+
+async def test_an_explicit_max_price_column_still_wins():
+    portal = StubPortal([row(price="$800,000", maxprice="$1,100,000")])
+    p = (await repo(portal).search(ProjectFilters(), auth=AUTH))[0]
+    assert (p.starting_price, p.max_price) == (800_000, 1_100_000)
+
+
+async def test_placeholder_prices_are_not_counted_as_parser_failures():
+    """TBD is correct data entry. Counting it buries the signal this exists to
+    give -- a real change in how prices are written."""
+    portal = StubPortal([row(price="TBD"), row(price="N/A"), row(price="$1,000,000")])
+    r = repo(portal)
+    await r.search(ProjectFilters(), auth=AUTH)
+    assert r.unparsed_prices == 0
+
+
+async def test_a_genuinely_unreadable_price_is_still_counted():
+    portal = StubPortal([row(price="somewhere around a million")])
+    r = repo(portal)
+    await r.search(ProjectFilters(), auth=AUTH)
+    assert r.unparsed_prices == 1

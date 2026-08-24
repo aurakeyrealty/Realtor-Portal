@@ -115,3 +115,23 @@ def test_slug_is_stable_for_the_same_project():
 def test_slug_changes_when_a_project_is_renamed():
     """The documented cost of shipping deep links before PROJECT ID is filled."""
     assert slugify("BRAMPTON", "Reva Westfield") != slugify("BRAMPTON", "Reva Westfield II")
+
+
+@pytest.mark.parametrize("raw,want", [("1%", 1.0), ("0.5%", 0.5), ("1 %", 1.0)])
+def test_a_percent_sign_means_the_value_is_already_a_percentage(raw, want):
+    """A 1% deposit read as 100% tells a realtor the buyer pays the whole price
+    up front, and drops the project from every 'max 10% deposit' search."""
+    assert parse_percent(raw) == want
+
+
+def test_the_fraction_correction_still_applies_without_a_percent_sign():
+    assert parse_percent("0.1") == 10.0
+    assert parse_percent("1") == 100.0
+
+
+def test_is_blank_separates_unfilled_from_unreadable():
+    """They both parse to None and mean opposite things about data health."""
+    from app.adapters.parsing import is_blank
+
+    assert is_blank("TBD") and is_blank("") and is_blank("N/A")
+    assert not is_blank("somewhere around a million")
