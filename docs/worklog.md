@@ -1,0 +1,204 @@
+# Worklog
+
+Why things are the way they are. Newest first.
+
+The code says *what*. Git says *when*. This says **why** — the option that was
+rejected, the constraint that forced a shape, the bug that a comment now guards
+against. If you are about to undo something here, the entry should tell you what
+it will cost.
+
+**One entry per substantive change.** Keep it short: a decision, its reason, and
+anything a future reader would otherwise have to rediscover. Skip typo fixes and
+formatting.
+
+---
+
+## 2026-08-24 — `dev/verify.mjs` learned extension globs; `Audit.js` is a server file
+
+**What.** Two fixes to the stray-root-file check: `Audit.js` added to
+`SERVER_FILES`, and the `.claspignore` matcher now honours `*.ext` globs.
+
+**Why.** A code review flagged `AGENTS.md` and `CLAUDE.md` in `.claspignore` as
+dead — `.clasp.json` only pushes `.js`/`.gs`/`.html`/`.json`, so Markdown is never
+a push candidate. **That reasoning was right about clasp and wrong about the
+repo.** Those lines were load-bearing for `dev/verify.mjs`, whose matcher
+understood only exact names and directory prefixes. Removing them failed
+verification for a reason invisible from the line itself.
+
+Teaching the matcher globs was the better fix than restoring two lines: every
+future doc is now covered without a new entry, and the check keeps doing its real
+job — failing the day an unignored *code* path appears in the root.
+
+`Audit.js` was simply missing from the list: it is a genuine server file, pushed
+deliberately, and already documented as one in `AGENTS.md` §2.
+
+**Worth remembering:** "this line looks redundant" is not the same as "this line
+does nothing". Before deleting one, run the check that might be leaning on it.
+
+---
+
+## 2026-08-24 — `/health` split into a probe and a doctor
+
+**What.** `GET /health` is now a terse public liveness probe. The real
+diagnostics moved to `GET /doctor`, which requires a token and runs live checks:
+`config`, `portal_reachable`, `portal_auth`, `token_verification`,
+`project_data`, `conversation_store`, `document_index`.
+
+**Why.** The original `/health` reported `app: true` (meaningless — it answered,
+so it is up) and `auth_configured` (proves a setting is *present*, not
+*correct*). Neither tells a realtor why an answer failed. It also could not check
+the data path at all: every portal action except `login`/`session` needs a token,
+and a public endpoint has none.
+
+**Three things worth keeping:**
+
+1. **`/doctor` accepts a token that does not verify.** Found while testing: with
+   a wrong `TOKEN_SECRET` nothing verifies, so `/doctor` returned 401 — unreachable
+   at exactly the moment it is needed. A doctor that stops working when the
+   patient is sick is no use. It now diagnoses the refusal instead of refusing.
+2. **It separates two failures that look identical.** A mismatched `TOKEN_SECRET`
+   and an expired session both show as "every realtor gets 401 while /health is
+   green". Cross-referencing local verification against the portal's own verdict
+   distinguishes them, and says so in words.
+3. **`/health` deliberately withholds what `/doctor` states.** A public endpoint
+   naming which secret is unset tells a stranger when forging might work. An
+   unverified caller to `/doctor` gets detail on `token_verification` and
+   `portal_auth` only; the rest is redacted.
+
+Severity is graded: no conversation store → `degraded` (history breaks, chat
+works); no project data → `down`. So a platform restart policy fires on a real
+outage, not on Postgres hiccuping.
+
+---
+
+## 2026-08-24 — Aura Chat Phase 1: service skeleton, ports and auth
+
+**What.** `aura-chat/` — Python 3.12, FastAPI, ports-and-adapters. Domain models,
+five Protocols, the portal HTTP client, an HMAC token verifier, a composition
+root, and 40 tests.
+
+**Why a separate service at all.** Apps Script cannot stream (`ContentService`
+buffers), caps a fetch at ~60s, and — the deciding factor — shares a **single
+daily runtime budget with the portal itself**. Chat traffic could take Home down.
+It also blocks every Future ticket: document RAG, webhooks, push.
+
+**Why it still reuses the portal.** The service calls the existing exec API as
+its data plane, so `Sheets.js` readers, the cache layer and the permission model
+are not re-implemented, and the Google Sheets API quota is never touched.
+
+**Why the caller's own token is the credential.** The service forwards the
+realtor's token unchanged. No service account, no standing privilege: whatever
+the portal will not show that realtor, it will not show Aura Chat. A revoked
+realtor loses chat in the same window they lose the portal.
+
+**Auth needed two levels.** Python can check the HMAC signature and the 7-day
+window, but *not* `credGen` or whether the account still exists — both need the
+LOGIN sheet. So `verify_local()` is offline (rejects junk with no round trip) and
+`verify()` delegates liveness to the portal's `session` action, cached 60s. If the
+portal is *unwell* rather than refusing, a locally valid token is honoured —
+otherwise an Apps Script outage signs out the whole team.
+
+**Sharp edges recorded in code:**
+
+- Token fields are parsed **from the end**. A username may contain `|`, so
+  counting from the front misreads every other field. Same bug as `61b06fc`; now
+  a test.
+- `TOKEN_SECRET` must be byte-identical to the Script Property. A mismatch shows
+  as a universal 401 with a green `/health` — hence `/doctor`.
+- Lifespan only builds a container if none was injected. Building over an
+  injected one silently replaced test fakes with real adapters reading a
+  nonexistent `.env`.
+
+**Rejected:** all-in Apps Script (no streaming, shared quota); Cloudflare Workers
+(genuinely good and cheaper — lost on familiarity during a 2-day sprint; Hono and
+FastAPI both port if we revisit); a Next.js rebuild (the PWA already delivers
+phone + web + install + offline + auth); Vertex AI Agent Builder and Azure AI
+Foundry (metered, high lock-in, and their auth models fight ours — realtors have
+no Google or Microsoft identity); LangChain (300+ integrations and graph
+orchestration for an agent with five tools and one loop).
+
+---
+
+## 2026-08-24 — Ports and adapters, so the data source can move
+
+**What.** Five seams behind `Protocol`s: `ProjectRepo`, `ConversationStore`,
+`DocumentIndex`, `AuthVerifier`, `AgentRuntime`.
+
+**Why.** Two swaps are likely rather than hypothetical: project data is expected
+to outgrow Sheets, and the agent framework is a fresh bet.
+
+**What makes the data-source swap real** — not the Protocol, but two disciplines:
+
+1. A source-agnostic `Project` domain model. Sheet headers, row numbers and
+   `$899,900` parsing live **only** inside the adapter's `_map()`. The moment a
+   column name leaks into `tools.py`, the swap stops being one file.
+2. Ports expressed as **query intent**: `search(ProjectFilters) -> list[Project]`,
+   never `read_tab()`. A tool that fetches everything and filters it itself works
+   fine today — the sheet returns everything anyway — and silently blocks the move
+   to SQL, where the same filter should become a `WHERE` clause.
+
+`tests/test_layering.py` AST-walks imports and enforces all of it: `domain/`
+imports nothing external, `ports/` declares only Protocols, and **only**
+`container.py` constructs an adapter.
+
+**Deliberately not ports:** the HTTP framework, the Postgres driver, and the model
+provider — swapping OpenRouter for Gemini is already a model string inside the
+runtime. A seam that will never gain a second adapter is cost with no return.
+Hard cap: five ports, one adapter each during the sprint.
+
+---
+
+## 2026-08-24 — Discovery: what the portal actually holds
+
+Full write-up: [`aura-chat/investigation-aur-3-4-5.md`](aura-chat/investigation-aur-3-4-5.md).
+
+**The two findings that reshaped the sprint:**
+
+1. **The city tabs carry no commercial data.** 38 tabs, 36 sharing one layout:
+   project, builder, type, occupancy, status, three link columns. No price,
+   deposit, bedrooms, incentives or address. The flagship demo query — *"show
+   detached under $1M"* — could not be answered at all. This was not a
+   data-quality gap to be cleaned; the columns had to be **created**. Sudhanshu
+   began adding them to BRAMPTON on 2026-08-24.
+2. **There is no project page and no project ID.** The deepest route was
+   `#city/BRAMPTON`; projects render as cards whose links go *out* to builder
+   portals. A project was addressable only as (tab, row number, name) — and the
+   row number moves. That blocks `getProject`, `compareProjects`, deep links, and
+   the Day 1 gate.
+
+**The good news:** `buildSearchIndex_` already builds a warm, cached, cross-city
+project array — and has **no action in the dispatcher**. It exists only to feed
+`getFocus_` and `getCityCounts_`. Exposing and filtering it is most of the search
+tool, not a build from scratch.
+
+**Why filtering will happen in Python, not Apps Script:** one new read-only
+`aiindex` action returns that array; the service caches it on a short TTL and
+filters locally. Richer filters, no duplicated logic, and roughly one portal
+fetch per TTL window instead of one per question — which is also the main
+mitigation for the shared-runtime risk.
+
+**A column rule worth not rediscovering.** New columns go on the **right**, never
+at A. `getCities_` identifies a city tab by column A containing `PROJECT` and B
+containing `BUILDER`; inserting at A makes B `PROJECT`, the tab stops being
+recognised, and it vanishes from the Cities screen. Separately, `buildColMap_`
+binds each field to the **first** header containing its keyword, so a `PROJECT ID`
+column to the left of `PROJECT` would make every project name render as an ID.
+Positions may differ per tab — matching is by header text, so appending is safe.
+
+**Also confirmed:** the pricing tabs nothing in the app reads (`HotPriceSheet`,
+`PRECON`, `HotDeals`, `Deposit Calculator`, `RESALE`) are **not** a usable source.
+`HotPriceSheet` has prices but no project column at all; the others are 12–32 rows
+keyed on free text.
+
+---
+
+## 2026-08-24 — `Audit.js`
+
+Editor-only, read-only schema diagnostics: `auditCityHeaders()`,
+`auditPriceTabs()`, `auditTabRows(tab)`. Nothing routed, nothing written.
+
+**Why it exists.** The sheets are private and no available credential could read
+them from outside — `clasp`'s OAuth scopes cover Apps Script and Drive *metadata*,
+not sheet contents. Running the question inside the script was the way in.
+
+Safe to delete once the sprint's discovery tickets close.
