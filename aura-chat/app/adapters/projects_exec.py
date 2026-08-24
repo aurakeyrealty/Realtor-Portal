@@ -99,6 +99,12 @@ class ExecApiProjectRepo:
         Known limit: the cache is per process. If this ever runs on more than one
         worker, each keeps its own copy and the portal sees one fetch per worker
         per window. At this team's size we do not scale out; revisit if we do.
+
+        ONE slot, shared by every caller, filled by whoever arrived first. Safe
+        only because `aiindex` returns the same bytes to every signed-in
+        realtor. If it ever varies by role or permission, this must be keyed on
+        the same axis or removed -- an admin's payload would otherwise be served
+        to every realtor behind them. See invariants.md #9.
         """
         now = time.monotonic()
         if not fresh and self._cached is not None and now - self._fetched_at < self._ttl:

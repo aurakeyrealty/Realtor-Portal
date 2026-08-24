@@ -64,3 +64,39 @@ is a stated acceptance criterion, not an aspiration.
 Publishing the portal through "New deployment" mints a fresh id and retires the
 old one. If it changes, `EXEC_URL` here and `EXEC` in `dev/config.mjs` must both
 change. See [`../portal.md`](../portal.md) §3.3.
+
+## 9. A shared cache must be keyed by whatever it varies on
+
+`ExecApiProjectRepo` holds the project index in **one slot for the whole
+process**, filled by whichever realtor's request arrived first. That is correct
+today for one reason only: `aiindex` returns the same bytes to every signed-in
+realtor.
+
+**It stops being correct the moment `aiindex` varies by role**, and the portal
+already has readers that do. `getBuilders_` hides builder-portal LOGIN and
+PASSWORD from non-admins, and `getBasement_` strips debug fields — and
+`getBuilders_` is also the precedent for the fix:
+
+```js
+var ck = 'builders_api' + (isAdmin ? '_admin' : '');   // Sheets.js
+```
+
+Two cache keys, so a payload built for an admin can never be served to a
+realtor. Our cache has **no key at all**, which is strictly worse: the first
+admin request would poison the slot for every realtor behind it, with no
+staleness window to survive.
+
+So, before adding anything role-dependent, permission-dependent or
+mode-dependent to `aiindex`:
+
+- key the Apps Script cache the way `getBuilders_` does — `ai_index_v1_admin`
+  vs `ai_index_v1`; and
+- key `_cached` on the same axis, or drop the cross-request cache entirely.
+
+Filtering *after* the fetch is not a substitute: the confidential values are
+already in the cached payload by then, and the next request gets them whole.
+
+**Note the distinction from Client Mode.** Client Mode strips fields per
+*request*, from a payload that is identical for everyone, so it is unaffected by
+this. The danger is only in fields the **portal itself** decides to withhold
+based on who asked.

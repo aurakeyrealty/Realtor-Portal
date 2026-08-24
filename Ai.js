@@ -20,7 +20,14 @@
    Focus screens and is on the Home hot path; a heavier payload for a different
    consumer does not belong in it. Both are built from the same per-city
    proj_<CITY> entries, so the sheet reads are shared even though the indexes
-   are not. */
+   are not.
+
+   ONE key, because this payload is currently identical for every signed-in
+   realtor. If anything here ever becomes role-dependent -- as getBuilders_ is,
+   hiding LOGIN and PASSWORD from non-admins -- this key MUST split the same
+   way getBuilders_ splits its own ('builders_api' vs 'builders_api_admin'),
+   and the AI service's own cache must split too. Filtering after the fetch
+   does not help: by then the values are already in the cached payload. */
 function getAiIndex_() {
   return cachedBuild_('ai_index_v1', buildAiIndex_);
 }
