@@ -135,6 +135,11 @@ Full rules, with the trigger and check for each:
   anything touching auth, what Client Mode hides, a tool's shape, a new Apps
   Script action, database schema, or two approaches with real trade-offs.
   Don't ask about naming, formatting, or anything these docs answer.
+- **Record why, in the same change.** Append to
+  [worklog.md](docs/worklog.md) — newest first — whenever the change is one a
+  future reader could reasonably want to undo: a decision, a rejected
+  alternative, a non-obvious constraint, a fix that looks arbitrary without its
+  story. Skip typos and renames. Write the reason; the diff already says what.
 - **Report honestly** — what changed, what you verified, what you left out. Run
   `pytest -q` before claiming done and report failures.
 
@@ -163,4 +168,5 @@ new read-only action, `aiindex`. Two things will bite you if you touch it:
 | [roadmap.md](docs/aura-chat/roadmap.md) | Phase status, and the names already chosen for unwritten files |
 | [architecture.md](docs/aura-chat/architecture.md) | The decision, the stack, the ports, the phased plan |
 | [investigation-aur-3-4-5.md](docs/aura-chat/investigation-aur-3-4-5.md) | The discovery it rests on |
+| [worklog.md](docs/worklog.md) | **Why** each change was made — decisions, rejected options, costs of reversing |
 | [portal.md](docs/portal.md) | The upstream Apps Script portal and PWA |

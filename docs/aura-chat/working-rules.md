@@ -100,6 +100,24 @@ out. A failing check reported is worth more than a passing one implied.
 
 ---
 
+### Record why, not just what
+
+- **Trigger:** any change a future reader could reasonably want to undo — a
+  design decision, a rejected alternative, a non-obvious constraint, a bug whose
+  fix looks arbitrary without its story.
+  **Check:** `git log` shows a substantive commit with no matching entry in
+  [`../worklog.md`](../worklog.md).
+- **Skip it** for typos, formatting and mechanical renames. An entry nobody
+  needs is noise, and noise is how a log stops being read.
+- Write the **reason**. The code says what changed and `git log` says when; the
+  worklog is for what neither records — the option rejected and why, the
+  constraint that forced the shape, what reversing will cost.
+- Sharp edges belong in **both** places: a comment where the trap is, so nobody
+  meets it unwarned, and the worklog entry so the next reader understands the
+  shape of the whole change.
+
+---
+
 ## Definition of done
 
 1. `.venv/bin/python -m pytest -q` green, including a test that would have
@@ -107,6 +125,7 @@ out. A failing check reported is worth more than a passing one implied.
 2. `test_layering.py` still green — the architecture rules survived the change.
 3. `/doctor` green against a real token, if the change touches auth or the data
    plane.
-4. What you changed, what you verified, and what you left out, stated plainly.
-5. Portal files touched? `node dev/verify.mjs`, then `clasp push`, then publish
+4. Substantive change? [`../worklog.md`](../worklog.md) has an entry for it.
+5. What you changed, what you verified, and what you left out, stated plainly.
+6. Portal files touched? `node dev/verify.mjs`, then `clasp push`, then publish
    by **editing** the existing deployment.
