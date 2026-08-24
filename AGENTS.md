@@ -151,6 +151,13 @@ Full rules, with the trigger and check for each:
   story. Skip typos and renames. Write the reason; the diff already says what.
 - **Report honestly** — what changed, what you verified, what you left out. Run
   `pytest -q` before claiming done and report failures.
+- **Write it down instead of fixing it** when a defect is real but off the path
+  of the current change. Add an entry to
+  [known-issues.md](docs/aura-chat/known-issues.md) with the symptom, the root
+  cause, a command that reproduces it, and the fix you would write. Fixing every
+  defect the moment it is found is how a sprint stops moving; finding the same
+  one twice is how it stops mattering. Fixing one means deleting its entry and
+  putting the reason in the worklog.
 
 ---
 
@@ -181,5 +188,6 @@ if you touch it:
 | [investigation-aur-3-4-5.md](docs/aura-chat/investigation-aur-3-4-5.md) | The discovery it rests on |
 | [operations.md](docs/aura-chat/operations.md) | Getting a token, the full env var list, deploying, rotating `TOKEN_SECRET` |
 | [worklog.md](docs/worklog.md) | **Why** each change was made — decisions, rejected options, costs of reversing |
+| [known-issues.md](docs/aura-chat/known-issues.md) | Defects found and understood but **not fixed** — symptom, root cause, how to reproduce, the fix I would write |
 | [sprint-tracker.html](docs/aura-chat/sprint-tracker.html) | The AUR-* sprint board. Reference only — nothing reads it |
 | [portal.md](docs/portal.md) | The upstream Apps Script portal and PWA |
