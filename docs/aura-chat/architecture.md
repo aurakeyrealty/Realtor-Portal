@@ -148,10 +148,11 @@ Tools, prompts, agent, API and UI are untouched throughout.
 ```
 aura-chat/
   app/
-    domain/        Project, Document, Conversation, Message, ProjectFilters
+    domain/        Project, ProjectFilters, Claims, Role, ChatMode
+                   later: Document, Conversation, Message (phases 4-5)
                    pure Pydantic — no I/O, no framework, no vendor types
     ports/         Protocols only: ProjectRepo, ConversationStore, DocumentIndex,
-                   AuthVerifier, LLMProvider, AgentRuntime
+                   AuthVerifier, AgentRuntime — five, and no more
     adapters/
       portal_client.py     HTTP client for the exec API
       projects_exec.py     ProjectRepo over that client ← today
@@ -178,7 +179,7 @@ Enforcement is a grep in CI, not a convention people remember.
 
 ### 4.6 Honest cost
 
-Six ports plus a composition root is roughly a day of scaffolding that a direct implementation
+Five ports plus a composition root is roughly a day of scaffolding that a direct implementation
 would not spend. It is worth it here because two of the swaps are *likely*, not hypothetical:
 the project data is expected to outgrow Sheets, and the agent framework is a fresh bet.
 

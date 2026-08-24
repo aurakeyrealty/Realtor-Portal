@@ -29,9 +29,15 @@ from — see §6.
 aura-chat/
   app/
     domain/            Project, ProjectFilters, Claims, Role, ChatMode
+                       matching.py — filter + sort semantics, source-agnostic
                        Pure Pydantic. Imports nothing external.
     ports/             Protocols only — five seams, no more
     adapters/          One implementation per port
+      portal_client.py     HTTP client for the exec API
+      auth_portal_hmac.py  the portal's token, verified here
+      projects_exec.py     ProjectRepo over aiindex — no column name escapes it
+      parsing.py           sheet text -> money, percent, dates, slugs
+    tools.py           What the model may do. Imports domain + ports only
     container.py       Composition root — the ONLY file that constructs an adapter
     api.py             FastAPI routes (/health, /doctor, /me)
     diagnostics.py     the checks behind /health and /doctor
@@ -102,8 +108,11 @@ cp .env.example .env                      # then fill TOKEN_SECRET
 .venv/bin/uvicorn app.main:app --reload   # :8000
 
 curl localhost:8000/health
-curl -H "Authorization: Bearer <portal token>" localhost:8000/doctor
+curl -H "Authorization: Bearer $TOK" localhost:8000/doctor      # add ?fresh=1 to rebuild caches
 ```
+
+Getting `$TOK`, and every other environment question:
+[operations.md](docs/aura-chat/operations.md).
 
 `/doctor` is the first thing to run when an answer fails: it uses the caller's
 own token and exercises the same path a question takes, so it tells "the portal
@@ -148,8 +157,9 @@ Full rules, with the trigger and check for each:
 ## 6. The portal (upstream)
 
 The Apps Script web app and PWA in the repo root:
-**[portal.md](docs/portal.md)**. Aura Chat's only planned change to it is one
-new read-only action, `aiindex`. Two things will bite you if you touch it:
+**[portal.md](docs/portal.md)**. Aura Chat's only change to it is `Ai.js` —
+one read-only action, `aiindex`, shipped in Phase 2. Two things will bite you
+if you touch it:
 
 - `clasp push` uploads everything not in `.claspignore`, and a browser file in
   the server's global scope 500s every request. Run `node dev/verify.mjs` first.
@@ -168,5 +178,7 @@ new read-only action, `aiindex`. Two things will bite you if you touch it:
 | [roadmap.md](docs/aura-chat/roadmap.md) | Phase status, and the names already chosen for unwritten files |
 | [architecture.md](docs/aura-chat/architecture.md) | The decision, the stack, the ports, the phased plan |
 | [investigation-aur-3-4-5.md](docs/aura-chat/investigation-aur-3-4-5.md) | The discovery it rests on |
+| [operations.md](docs/aura-chat/operations.md) | Getting a token, the full env var list, deploying, rotating `TOKEN_SECRET` |
 | [worklog.md](docs/worklog.md) | **Why** each change was made — decisions, rejected options, costs of reversing |
+| [sprint-tracker.html](docs/aura-chat/sprint-tracker.html) | The AUR-* sprint board. Reference only — nothing reads it |
 | [portal.md](docs/portal.md) | The upstream Apps Script portal and PWA |

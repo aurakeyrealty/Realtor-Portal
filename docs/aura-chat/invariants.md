@@ -36,7 +36,8 @@ same commit.
 
 Apps Script gives the whole brokerage ~90 minutes of execution a day, and the
 portal's own screens need it. Chat traffic starving Home is a real, listed risk.
-So: `aiindex` is fetched on a TTL (~1 fetch per 10 min, not per question),
+So: `aiindex` is cached for `ExecApiProjectRepo.TTL_S` — **5 minutes**, roughly
+one fetch per conversation rather than one per question —
 `PortalClient.healthy()` caches its verdict, and `/health` must stay cheap — it
 is polled by the platform and by any uptime monitor. Never add a per-request
 portal call that could have been cached.

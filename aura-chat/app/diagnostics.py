@@ -112,7 +112,7 @@ async def shallow(c: Container) -> Report:
     return Report(checks)
 
 
-async def deep(c: Container, *, auth: str, claims: Claims | None) -> Report:
+async def deep(c: Container, *, auth: str, claims: Claims | None, fresh: bool = False) -> Report:
     """What /doctor runs: everything in shallow(), plus the checks that need a
     token.
 
@@ -140,7 +140,9 @@ async def deep(c: Container, *, auth: str, claims: Claims | None) -> Report:
         report.checks.append(Check("project_data", None, "not wired yet"))
     else:
         report.checks.append(
-            await _timed("project_data", _project_probe(c, auth), expect="no projects returned")
+            await _timed(
+                "project_data", _project_probe(c, auth, fresh), expect="no projects returned"
+            )
         )
 
     report.checks.append(
@@ -153,6 +155,7 @@ async def deep(c: Container, *, auth: str, claims: Claims | None) -> Report:
         if c.documents is not None
         else Check("document_index", None, "not wired yet", critical=False)
     )
+    report.checks.append(data_quality(c))
     if claims is None:
         _redact(report)
     return report
@@ -198,8 +201,29 @@ async def _portal_auth(c: Container, auth: str) -> bool:
     return bool(data.get("ok"))
 
 
-async def _project_probe(c: Container, auth: str) -> bool:
+async def _project_probe(c: Container, auth: str, fresh: bool = False) -> bool:
     from app.domain import ProjectFilters
 
+    if fresh:
+        return await c.projects.refresh(auth=auth) > 0
     rows = await c.projects.search(ProjectFilters(limit=1), auth=auth)
     return len(rows) > 0
+
+
+def data_quality(c: Container) -> Check:
+    """How much of what came back was actually usable.
+
+    A price the parser could not read is not an error -- it is a project that
+    silently drops out of every price filter. Counting them here means a change
+    in how prices are written shows up as a number, rather than as a realtor
+    getting an answer that quietly omits half the projects.
+    """
+    repo = c.projects
+    total = getattr(repo, "total_rows", 0)
+    unparsed = getattr(repo, "unparsed_prices", 0)
+    if not total:
+        return Check("data_quality", None, "no projects read yet", critical=False)
+    detail = f"{total} projects"
+    if unparsed:
+        detail += f", {unparsed} with a price the parser could not read"
+    return Check("data_quality", unparsed == 0, detail, critical=False)

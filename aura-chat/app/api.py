@@ -72,7 +72,9 @@ async def health(request: Request) -> dict:
 
 
 @router.get("/doctor")
-async def doctor(request: Request, token: str = Depends(presented_token)) -> dict:
+async def doctor(
+    request: Request, fresh: bool = False, token: str = Depends(presented_token)
+) -> dict:
     """Full diagnosis, for a signed-in human working out why an answer failed.
 
     Uses the caller's own token, so it exercises the same path a question
@@ -82,7 +84,10 @@ async def doctor(request: Request, token: str = Depends(presented_token)) -> dic
     """
     c = container(request)
     claims = await c.auth.verify(token)
-    report = await diagnostics.deep(c, auth=token, claims=claims)
+    # ?fresh=1 rebuilds both caches. Slow and rate-limited upstream, so it is a
+    # deliberate diagnostic step -- the answer to "I edited the sheet, why is
+    # Aura still saying the old thing?"
+    report = await diagnostics.deep(c, auth=token, claims=claims, fresh=fresh)
     return {**report.as_dict(), "user": claims.user if claims else None}
 
 

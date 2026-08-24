@@ -13,6 +13,77 @@ formatting.
 
 ---
 
+## 2026-08-24 — Docs audit: reconcile the guides with the code
+
+**What.** Audited AGENTS.md and the six docs it points at against the tree.
+Phase 2 had landed; most of the drift was from that one commit. Fixed the stale
+facts, added `docs/aura-chat/operations.md`.
+
+**The drift worth naming.** `roadmap.md` still called Phase 2 "next" and listed
+`filters.py` as unwritten — a file that was deliberately never built, because
+filtering became `domain/matching.py` (pure, so a SQL adapter reuses the
+semantics) and the cache went inside the adapter. A roadmap that names a file
+nobody intends to write is worse than one that says nothing: the next agent
+creates it. It now records the supersession rather than the plan.
+
+**Numbers that had drifted:** the `aiindex` window is `TTL_S = 300` (5 min), not
+the "~10 min" three docs had inherited from the pre-build estimate; ruff reports
+~16 findings, not ~10; the test count was 40 in one doc and 116 in another.
+`/health` was still documented as returning a per-check breakdown, which it
+stopped doing when the output was deliberately redacted.
+
+**Why operations.md exists.** Two docs told the reader to send
+`Authorization: Bearer <portal token>` and neither said where a token comes
+from, so `/doctor` was undocumented in practice. It now carries the token
+recipe, the full settings table, the Railway steps, and the `TOKEN_SECRET`
+rotation runbook the architecture doc's risk table asked for and nobody wrote.
+
+**One trap found by running the recipe rather than writing it.** `curl -X POST
+-L` against the exec URL returns a Google HTML error page, not JSON: `-X` pins
+the method across the 302, and the googleusercontent hop only answers GET. `-d`
+alone is correct. The reason is written next to the command — it is otherwise
+an afternoon of assuming the deployment is broken.
+
+**Left open, deliberately:** `project_source` is declared in `config.py` and
+read nowhere (`build()` constructs `ExecApiProjectRepo` unconditionally, though
+its comment claims otherwise), and `project.py` groups `broker_url` under
+`# links` while `CONFIDENTIAL_FIELDS` strips it. Both are decisions, not
+typos.
+
+---
+
+## 2026-08-24 — Phase 2 verified against live data
+
+`/doctor` green end to end with a real realtor token: 246 projects read from the
+live sheets in ~2s, `token_verification` and `portal_auth` both passing.
+
+**Two things this shook out:**
+
+1. **A refresh needs its own timeout.** `refresh()` busts both caches, which makes
+   the portal walk all ~38 city tabs — about a minute. The ordinary 30s read
+   budget cut it off mid-rebuild and surfaced as a bare "portal unreachable".
+   `PortalClient.call` now takes a per-call override and the refresh path uses
+   240s.
+2. **`data_quality` counts rejected values, not missing ones.** "246 projects" with
+   no unparsed count reads like success; in fact every price cell was empty. The
+   check is honest about what it measures, but the number needs reading carefully:
+   it answers "did anything fail to parse", not "is there anything there".
+
+**State of the data as of this run:** `PROJECT ID` is populated for all 23
+BRAMPTON projects and addresses are in, so the whole sheet-to-domain chain is
+proven. `STARTING PRICE`, `BEDROOMS`, `DEPOSIT %`, `INCENTIVES` and
+`LAST UPDATED` are present as headers with empty cells. Nothing to parse yet, so
+the price format stays an open question until Sudhanshu writes the first few
+values — deliberately not agreed in the abstract, because a format settled
+before contact with real data tends not to survive it.
+
+**Also confirmed:** deploying is domain-restricted. `clasp push` works from any
+account with edit access; publishing needs an account in the script owner's
+domain (`office@aurakeyrealty.ca`). The deployment went `@22 → @25` on the same
+id, so the URL every installed phone calls is unchanged.
+
+---
+
 ## 2026-08-24 — Aura Chat Phase 2: tools over live data
 
 **What.** `Ai.js` and one `aiindex` action in the portal; `ProjectRepo` over it;

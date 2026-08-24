@@ -89,9 +89,9 @@ out. A failing check reported is worth more than a passing one implied.
   broadly on purpose; the portal being unwell is not the token being bad.
 - **Linting:** `ruff`, line length 100. Note that `pyproject.toml` pins only
   line-length and target-version, so ruff 0.16's default rule set applies and
-  currently reports ~10 findings (import order, blind `except`, `Depends` in a
-  default). Several of those are deliberate and documented in the code — **do
-  not "fix" them by rewriting working code.** Pinning
+  currently reports ~16 findings (import order, blind `except`, `Depends` in a
+  default, `dict()` calls, naive `strptime`). Several are deliberate and
+  documented in the code — **do not "fix" them by rewriting working code.** Pinning
   `[tool.ruff.lint] select` is the real fix, and it is a decision for the user.
 - **Commit messages:** `type: imperative summary` (`feat`, `fix`, `perf`,
   `security`, `chore`, `style`) with a body explaining the failure, the

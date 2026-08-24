@@ -154,3 +154,27 @@ async def test_recent_says_nothing_when_the_column_is_unfilled():
     invent a freshness the sheet never claimed."""
     portal = StubPortal([row(lastupdated="")])
     assert await repo(portal).recent(7, auth=AUTH) == []
+
+
+async def test_refresh_bypasses_both_caches():
+    """A sheet edit is invisible until a cache turns over, and the portal's is
+    six hours. 'Wait until this evening' is not an answer during a sprint."""
+    portal = StubPortal()
+    r = repo(portal)
+    await r.search(ProjectFilters(), auth=AUTH)
+    assert portal.fetches == 1
+    assert await r.refresh(auth=AUTH) == 1
+    assert portal.fetches == 2
+
+
+async def test_refresh_asks_the_portal_to_rebuild_too():
+    """Bypassing only our cache would re-read the portal's stale copy."""
+    seen = []
+
+    class Recording(StubPortal):
+        async def call(self, action, *, auth=None, **params):
+            seen.append(params)
+            return await super().call(action, auth=auth, **params)
+
+    await repo(Recording()).refresh(auth=AUTH)
+    assert seen[0].get("fresh") is True

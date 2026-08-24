@@ -15,16 +15,20 @@ failures.
 
 | Phase | Scope | State |
 |---|---|---|
-| 1 | Skeleton, config, auth, portal client, `/health` `/doctor` `/me` | **done** — 40 tests green |
-| 2 | `aiindex` action, `projects_exec.py`, `filters.py`, `tools.py` | next |
-| 3 | `agent.py`, SSE endpoint, chat screen in the PWA — **the Day 1 gate** | not started |
-| 4 | Postgres persistence, history, Client Mode, sources, feedback | not started |
+| 1 | Skeleton, config, auth, portal client, `/health` `/doctor` `/me` | **done** |
+| 2 | `aiindex` action (`Ai.js`), `projects_exec.py`, parsing, matching, four tools | **done** — 116 tests green |
+| 3 | `agent.py`, SSE endpoint, chat screen in the PWA — **the Day 1 gate** | next |
+| 4 | Postgres persistence, history, Client Mode end to end, sources, feedback | not started |
 | 5 | Document retrieval over pgvector; structured-first | not started |
 | 6 | Audit logging, chat-specific rate limit, latency, 50-question benchmark | not started |
 
-Phase detail and done-signals: architecture doc §5. **Do not build ahead of the
-current phase.** The ports for later phases are declared so tools and tests can
-be written against them — that is not an invitation to implement them early.
+Phase 2 shipped one outstanding check: reading real rows needs a realtor token,
+which the session that built it did not have. See
+[`operations.md`](operations.md) for how to get one.
+
+**Do not build ahead of the current phase.** The ports for later phases are
+declared so tools and tests can be written against them — that is not an
+invitation to implement them early.
 
 ---
 
@@ -35,9 +39,12 @@ not on this list, that is a design decision — ask.
 
 | File | Phase | What it is |
 |---|---|---|
-| `app/tools.py` | 2 | The AI's tools as plain typed async functions. Imports `domain` + `ports` only |
-| `app/adapters/projects_exec.py` | 2 | `ProjectRepo` over the exec API. **No column name escapes this file** |
-| `app/adapters/filters.py` | 2 | TTL cache + filtering over the `aiindex` payload |
 | `app/agent.py` | 3 | The **only** file permitted to import an agent framework |
 | `app/adapters/store_postgres.py` | 4 | `ConversationStore` |
 | `app/adapters/docs_pgvector.py` | 5 | `DocumentIndex` |
+
+**`app/adapters/filters.py` was planned and deliberately not built.** Filtering
+became `app/domain/matching.py` (`matches`, `sort_key` — pure, source-agnostic,
+so a future SQL adapter reuses the semantics), and the TTL cache went inside
+`ExecApiProjectRepo`, because a Postgres adapter would not want it. See the
+worklog entry for 2026-08-24.

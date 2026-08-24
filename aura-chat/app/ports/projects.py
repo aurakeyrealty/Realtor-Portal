@@ -18,4 +18,14 @@ class ProjectRepo(Protocol):
 
     async def recent(self, days: int, *, auth: str, limit: int = 20) -> list[Project]: ...
 
+    async def refresh(self, *, auth: str) -> int:
+        """Drop any caching and re-read, returning how many projects came back.
+
+        A capability, not a leak of how the adapter stores things: a repo with
+        no cache implements this as an ordinary read. It exists because a sheet
+        edit is invisible until a cache turns over, and 'wait six hours' is not
+        an answer during a sprint.
+        """
+        ...
+
     async def healthy(self) -> bool: ...

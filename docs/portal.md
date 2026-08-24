@@ -42,6 +42,7 @@ dependencies. Data lives in three Google Sheets, read through `Sheets.js`.
 | `Sheets.js` | Generic tab readers, the project/directory readers, login |
 | `Team.js` | Team screens: home, leaderboard, deals, bootcamp |
 | `External.js` | Proxied third-party APIs: LTB, crime, schools, basement registration |
+| `Ai.js` | The `aiindex` action — the whole cross-city project set in one payload, for Aura Chat |
 | `Audit.js` | Editor-only, read-only schema diagnostics. Nothing routed, nothing written |
 | `App.html` | Page shell + the sign-in gate markup |
 | `Styles.html` | All CSS, one `<style>` element |
@@ -65,7 +66,7 @@ happened at least once.
 
 ### 3.1 Apps Script has one global scope
 
-`Core.js`, `Sheets.js`, `Team.js`, `External.js` and `Audit.js` are
+`Core.js`, `Sheets.js`, `Team.js`, `External.js`, `Ai.js` and `Audit.js` are
 concatenated into a single scope at runtime. Load order does not matter, but
 **a duplicate top-level name silently wins or loses**, and a syntax error in any
 one file breaks every request. `dev/verify.mjs` loads all of them together for

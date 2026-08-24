@@ -33,7 +33,12 @@ in the architecture doc has quietly stopped being a one-file change.
 
 ## Endpoints
 
+All three take the realtor's own portal token as `Authorization: Bearer <token>`,
+except `/health`. See [`../docs/aura-chat/operations.md`](../docs/aura-chat/operations.md)
+for how to get one.
+
 | | |
 |---|---|
-| `GET /health` | public; reports app, auth config, portal and model separately |
-| `GET /me` | requires `Authorization: Bearer <portal token>` |
+| `GET /health` | Public liveness. Returns `{status, ok}` only — deliberately uninformative, so a stranger cannot learn which secret is unset. |
+| `GET /doctor` | The full diagnosis, for a signed-in human. `?fresh=1` rebuilds the caches. |
+| `GET /me` | Proves the auth path end to end without touching project data. |

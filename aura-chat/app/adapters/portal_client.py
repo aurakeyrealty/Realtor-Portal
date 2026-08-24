@@ -49,12 +49,18 @@ class PortalClient:
             await self._client.aclose()
             self._client = None
 
-    async def call(self, action: str, *, auth: str | None = None, **params: Any) -> dict:
+    async def call(
+        self, action: str, *, auth: str | None = None, timeout_s: float | None = None, **params: Any
+    ) -> dict:
         """Invoke one action on the portal's dispatcher.
 
         `auth` is the *caller's own* token, forwarded unchanged. This service
         holds no service account and has no standing privilege: whatever the
         portal will not show that realtor, it will not show Aura Chat either.
+
+        `timeout_s` overrides the default for one call. A cache-busting rebuild
+        walks every city tab and takes about a minute, which the budget sized for
+        an ordinary read would cut off.
         """
         if not self._url:
             raise PortalError("EXEC_URL is not configured")
@@ -63,7 +69,11 @@ class PortalClient:
             body["auth"] = auth
         http = await self._http()
         try:
-            res = await http.post(self._url, content=json.dumps(body))
+            res = await http.post(
+                self._url,
+                content=json.dumps(body),
+                timeout=timeout_s if timeout_s is not None else self._timeout,
+            )
         except httpx.HTTPError as exc:
             raise PortalError(f"portal unreachable: {exc}") from exc
         if res.status_code != 200:

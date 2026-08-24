@@ -164,3 +164,43 @@ def test_doctor_redacts_other_detail_from_an_unverified_caller(app, settings):
 def test_doctor_still_requires_some_token(app):
     with TestClient(app) as client:
         assert client.get("/doctor").status_code == 401
+
+
+def test_doctor_reports_unreadable_prices(app):
+    """A price the parser cannot read is a project that silently drops out of
+    every price filter -- it should surface as a number, not as a thin answer."""
+    class Repo:
+        total_rows, unparsed_prices = 40, 3
+
+        async def search(self, f, *, auth):
+            return []
+
+        async def refresh(self, *, auth):
+            return 0
+
+    app.state.container.projects = Repo()
+    with TestClient(app) as client:
+        body = client.get(
+            "/doctor", headers={"Authorization": f"Bearer {make_token('sarath')}"}
+        ).json()
+    q = body["checks"]["data_quality"]
+    assert q["ok"] is False and "3 with a price" in q["detail"]
+    assert q["critical"] is False
+
+
+def test_unreadable_prices_degrade_rather_than_down(app):
+    class Repo:
+        total_rows, unparsed_prices = 40, 3
+
+        async def search(self, f, *, auth):
+            return [object()]
+
+        async def refresh(self, *, auth):
+            return 1
+
+    app.state.container.projects = Repo()
+    with TestClient(app) as client:
+        body = client.get(
+            "/doctor", headers={"Authorization": f"Bearer {make_token('sarath')}"}
+        ).json()
+    assert body["status"] == "degraded"

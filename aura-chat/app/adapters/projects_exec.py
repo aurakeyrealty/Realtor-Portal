@@ -28,6 +28,10 @@ class ExecApiProjectRepo:
     # app. Five minutes is roughly one fetch per conversation rather than one
     # per question.
     TTL_S = 300.0
+    # A cache-busting rebuild walks all ~38 city tabs. The ordinary read budget
+    # is sized for a cached hit and cuts this off part-way, so the diagnostic
+    # path gets its own.
+    REFRESH_TIMEOUT_S = 240.0
 
     def __init__(self, portal: PortalClient, *, ttl_s: float | None = None) -> None:
         self._portal = portal
@@ -63,6 +67,16 @@ class ExecApiProjectRepo:
         cutoff = dated[0].last_updated.toordinal() - days
         return [p for p in dated if p.last_updated.toordinal() >= cutoff][:limit]
 
+    async def refresh(self, *, auth: str) -> int:
+        """Force both caches -- ours and the portal's -- to rebuild.
+
+        The portal rate-limits this to one rebuild per action per 30s and a full
+        rebuild walks every city tab, so it is a diagnostic path, never
+        something a question triggers.
+        """
+        self.invalidate()
+        return len(await self._index(auth, fresh=True))
+
     async def healthy(self) -> bool:
         return await self._portal.healthy()
 
@@ -71,7 +85,7 @@ class ExecApiProjectRepo:
     def invalidate(self) -> None:
         self._cached = None
 
-    async def _index(self, auth: str) -> list[Project]:
+    async def _index(self, auth: str, *, fresh: bool = False) -> list[Project]:
         """The whole project set, cached in this process.
 
         One payload rather than a filtered query per question: filtering happens
@@ -82,9 +96,13 @@ class ExecApiProjectRepo:
         per window. At this team's size we do not scale out; revisit if we do.
         """
         now = time.monotonic()
-        if self._cached is not None and now - self._fetched_at < self._ttl:
+        if not fresh and self._cached is not None and now - self._fetched_at < self._ttl:
             return self._cached
-        data = await self._portal.call("aiindex", auth=auth)
+        data = await self._portal.call(
+            "aiindex",
+            auth=auth,
+            **({"fresh": True, "timeout_s": self.REFRESH_TIMEOUT_S} if fresh else {}),
+        )
         if data.get("ok") is False:
             raise PortalError(str(data.get("error") or "portal refused aiindex"))
         rows = data.get("rows") or []
