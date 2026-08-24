@@ -186,13 +186,20 @@ function fakeSheet(rows, links) {
      has to be ignored explicitly, and a new folder fails this check the day it
      appears rather than the day someone pushes. */
   const SERVER_FILES = ['App.html', 'Styles.html', 'Script.html',
-                        'Core.js', 'Sheets.js', 'Team.js', 'External.js', 'appsscript.json'];
+                        'Core.js', 'Sheets.js', 'Team.js', 'External.js', 'Audit.js',
+                        'appsscript.json'];
   const stray = readdirSync(DIR)
     .filter((n) => !n.startsWith('.'))
     .filter((n) => !SERVER_FILES.includes(n))
     .filter((n) => !ignore.split('\n').some((line) => {
       line = line.trim();
       if (!line || line.startsWith('#')) return false;
+      /* An extension glob counts. Without this the only way to satisfy the check
+         was one line per file, so every new doc needed a .claspignore entry to
+         guard against a push that .clasp.json's extension list already made
+         impossible -- and deleting one of those redundant-looking lines failed
+         verification for a reason nobody could see from the line itself. */
+      if (line.startsWith('*.')) return n.endsWith(line.slice(1));
       return line === n || line.startsWith(n + '/') || line.startsWith(n + '**');
     }));
   ok(stray.length === 0,
