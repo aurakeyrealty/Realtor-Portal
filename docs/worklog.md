@@ -13,6 +13,52 @@ formatting.
 
 ---
 
+## 2026-08-24 — The ONTARIO tab is dropped from the index
+
+**What.** `ROLLUP_CITIES` in `projects_exec.py`. Rows whose CITY is ONTARIO
+never become a `Project`. 250 rows become 163.
+
+**Why.** ONTARIO is a tab, but it is not a city. It held 87 of the sheet's 250
+rows, and 63 of its 84 distinct names already had a row on a real city tab. The
+two rows for one project disagree:
+
+| | CALEDON row 6 | ONTARIO row 31 |
+|---|---|---|
+| builder | Fernbrook / Zancor Homes | Fernbrook/Zancor |
+| type | Townhome/Detached | Detached |
+| occupancy | 2027/2028 | 2026 |
+| focus | yes | no |
+
+Nothing in the payload marks the pair as the same building, so both reached the
+model as separate projects and either occupancy could be quoted as fact. A
+realtor saw it as a location: "Whitby Meadows by Opus Home **in Ontario**".
+
+The remaining 22 rows are aliases of projects listed elsewhere under their
+proper names (`Duo` for DUO Condos, carrying a staler 2025 occupancy; `Brightside`,
+`Castlemile`, `Wildflowers`) and four entries that are not projects at all
+(`All Treasure Hills Projects`, `Mattamy All Projects`). About nine may be
+genuinely unique, all of them without a city, a price, or in most cases a
+builder. Sarath's call: let them go. If one turns out to be real, the fix is a
+row on its own city tab, not keeping the roll-up alive.
+
+**Rejected.** Doing it in `Ai.js`, server-side. Fewer rows over the wire, but it
+costs a `clasp push` and an edit to the live deployment, and undoing it costs
+another. In the adapter it is a one-line revert and the sheet keeps whatever use
+the tab has for Sudhanshu.
+
+**Also rejected:** de-duplicating by name instead of dropping the tab. It needs
+a rule for which row wins when they conflict, and the sheet gives no basis for
+one.
+
+**Cost of undoing.** The 63 duplicates come back, and with them the ability to
+quote either of two occupancy dates for the same project.
+
+**Watch for.** `skipped_rollup_rows` is reported by `/doctor` on purpose. If it
+ever reads 0 against the live sheet, the tab was renamed and the duplicates are
+back in the index.
+
+---
+
 ## 2026-08-24 — Docs audit: reconcile the guides with the code
 
 **What.** Audited AGENTS.md and the six docs it points at against the tree.

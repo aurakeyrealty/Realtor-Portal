@@ -238,3 +238,26 @@ async def test_a_genuinely_unreadable_price_is_still_counted():
     r = repo(portal)
     await r.search(ProjectFilters(), auth=AUTH)
     assert r.unparsed_prices == 1
+
+
+async def test_the_ontario_rollup_tab_never_becomes_projects():
+    """Its rows are second copies, and the copies disagree with the originals.
+
+    Caledon Club is 2027/2028 and a focus project on the CALEDON tab, 2026 and
+    not a focus project on ONTARIO. Both reached the model as separate projects,
+    so either occupancy could be quoted as fact.
+    """
+    portal = StubPortal([
+        row(city="CALEDON", id="", project="Caledon Club", occupancy="2027/2028", focus=True),
+        row(city="ONTARIO", id="", project="Caledon Club", occupancy="2026", focus=False),
+    ])
+    out = await repo(portal).search(ProjectFilters(), auth=AUTH)
+    assert [p.city for p in out] == ["CALEDON"]
+    assert out[0].occupancy == "2027/2028"
+
+
+async def test_skipped_rollup_rows_are_counted_for_doctor():
+    r = repo(StubPortal([row(), row(city="ONTARIO"), row(city="ontario")]))
+    await r.search(ProjectFilters(), auth=AUTH)
+    assert r.skipped_rollup_rows == 2   # matched case-insensitively
+    assert r.total_rows == 1

@@ -626,8 +626,18 @@ flowchart TD
 
 Three things happen here that are easy to miss:
 
-**Filtering runs on unredacted records.** `RedactingProjectRepo` asks the inner
-repo to filter, then redacts the results. A search may legitimately *use* a field
+**Filtering runs on unredacted records.** Think of `RedactingProjectRepo` as a
+clerk standing in front of a filing cabinet. The model never opens the cabinet
+itself. It asks the clerk for "detached homes under $1M in Brampton with
+commission over 4%"; the clerk reads the *full* sheets — commission included,
+which is how it matched at all — pulls the ones that fit, then photocopies them
+with the commission blacked out and hands over the copies. The model answers
+from the copies, so the number never reaches the prompt and cannot be read
+aloud to the buyer standing beside the phone. Alone in Realtor Mode, the same
+clerk blacks out nothing and hands over the originals.
+
+Concretely: `RedactingProjectRepo` asks the inner repo to filter, then redacts
+the results. A search may legitimately *use* a field
 it must not *show* — redacting first would silently change which projects come
 back depending on who is looking, which is worse than showing too little because
 it is invisible.

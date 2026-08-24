@@ -53,3 +53,7 @@ class RedactingProjectRepo:
     @property
     def unparsed_prices(self) -> int:
         return getattr(self._inner, "unparsed_prices", 0)
+
+    @property
+    def skipped_rollup_rows(self) -> int:
+        return getattr(self._inner, "skipped_rollup_rows", 0)

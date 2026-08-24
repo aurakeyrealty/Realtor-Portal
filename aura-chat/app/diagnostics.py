@@ -223,9 +223,12 @@ def data_quality(c: Container) -> Check:
     repo = c.projects
     total = getattr(repo, "total_rows", 0)
     unparsed = getattr(repo, "unparsed_prices", 0)
+    rollup = getattr(repo, "skipped_rollup_rows", 0)
     if not total:
         return Check("data_quality", None, "no projects read yet", critical=False)
     detail = f"{total} projects"
     if unparsed:
         detail += f", {unparsed} with a price the parser could not read"
+    if rollup:
+        detail += f", {rollup} roll-up rows skipped"
     return Check("data_quality", unparsed == 0, detail, critical=False)

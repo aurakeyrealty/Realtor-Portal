@@ -22,6 +22,19 @@ from .parsing import (
 )
 from .portal_client import PortalClient, PortalError
 
+# Tabs that are not cities. ONTARIO is a roll-up: 87 of the sheet's 250 rows,
+# 63 of them second copies of a project that already has a row on its real city
+# tab -- and the copies disagree. Caledon Club is 2027/2028 and a focus project
+# on the CALEDON tab, 2026 and not a focus project on this one. Nothing in the
+# payload marks the pair as the same building, so both reach the model as
+# separate projects and either date can be quoted as fact. The rest of the tab
+# is aliases ("Duo" for DUO Condos, with a staler occupancy) and roll-up
+# entries that are not projects at all ("Mattamy All Projects").
+#
+# Dropped here rather than in Ai.js so the sheet keeps whatever use it has for
+# the tab, and so undoing this is a one-line revert instead of a deployment.
+ROLLUP_CITIES = frozenset({"ONTARIO"})
+
 
 class ExecApiProjectRepo:
     # The portal rebuilds this index at most every few hours and Sudhanshu edits
@@ -45,13 +58,23 @@ class ExecApiProjectRepo:
         # realtor finds out by getting a wrong answer.
         self.unparsed_prices = 0
         self.total_rows = 0
+        # Reported by /doctor. A whole tab vanishing from the index is the kind
+        # of thing a future reader deletes as dead code unless the number is
+        # visible somewhere.
+        self.skipped_rollup_rows = 0
 
     # -- port ----------------------------------------------------------------
 
     async def search(self, filters: ProjectFilters, *, auth: str) -> list[Project]:
         rows = await self._index(auth)
+        # Every row is tested and every match ranked -- the cap is on what the
+        # caller carries away, not on what was considered.
         hits = [p for p in rows if matches(p, filters)]
         hits.sort(key=sort_key)
+        # Known gap: `len(hits)` dies here. If 40 matched, the model receives 12
+        # and has no way to say "40 matched, here are the closest" -- the total
+        # never leaves this method. Surfacing it means changing the port's
+        # return type, so it waits for a reason better than tidiness.
         return hits[: filters.limit]
 
     async def get(self, project_id: str, *, auth: str) -> Project | None:
@@ -117,8 +140,11 @@ class ExecApiProjectRepo:
         if data.get("ok") is False:
             raise PortalError(str(data.get("error") or "portal refused aiindex"))
         rows = data.get("rows") or []
-        parsed, unparsed = [], 0
+        parsed, unparsed, rollup = [], 0, 0
         for raw in rows:
+            if str(raw.get("city") or "").strip().upper() in ROLLUP_CITIES:
+                rollup += 1
+                continue
             project = self._to_project(raw)
             if project is None:
                 continue
@@ -133,6 +159,7 @@ class ExecApiProjectRepo:
         self._fetched_at = now
         self.unparsed_prices = unparsed
         self.total_rows = len(parsed)
+        self.skipped_rollup_rows = rollup
         return parsed
 
     # -- mapping: the containment boundary ------------------------------------
@@ -142,6 +169,8 @@ class ExecApiProjectRepo:
         name = str(raw.get("project") or "").strip()
         city = str(raw.get("city") or "").strip()
         if not name or not city:
+            return None
+        if city.upper() in ROLLUP_CITIES:
             return None
 
         # Some tabs carry one PRICE RANGE column instead of two, so the price
