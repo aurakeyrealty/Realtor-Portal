@@ -84,7 +84,23 @@ in `app/api.py`, and the chat endpoint in `app/chat.py`, kept apart because chat
 is the only one that streams.
 
 **`lifespan`** is a hook FastAPI calls once on startup and once on shutdown.
-This is where the application assembles itself:
+It is one function holding both, split by a `yield`:
+
+```python
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    ...        # startup: runs once, before the first request
+    yield      # the server serves requests here, for hours
+    ...        # shutdown: runs once, as the process exits
+```
+
+If you have seen `@app.on_event("startup")` and `@app.on_event("shutdown")`,
+this replaced them. A context manager keeps the setup and its teardown side by
+side rather than in two functions that have to remember to agree.
+
+Why the assembly cannot simply happen at import time: `build()` reads `.env` and
+opens an `httpx.AsyncClient`, which wants a running event loop. Startup is the
+first moment there is one. This is where the application assembles itself:
 
 ```python
 @asynccontextmanager
@@ -107,9 +123,24 @@ built.
 
 ### 1.2 The container
 
-`container_mod.build()` — `app/container.py`, 59 lines — is the **composition
-root**: the one place in the entire service where a concrete implementation is
-chosen.
+**Not a Docker container.** The word is older than Docker in this sense and the
+collision is unfortunate. This container is just a box holding the objects that
+live as long as the process does — a dataclass with six fields.
+
+The problem it solves: something has to decide *which* `ProjectRepo` this process
+uses. If every module that needed one constructed
+`ExecApiProjectRepo(PortalClient(url))` for itself, then swapping to Postgres
+later would mean editing twenty files, the process would hold twenty HTTP
+connection pools instead of one, and a test could not substitute a fake without
+monkeypatching. So one file constructs everything and every other file is
+*handed* what it needs.
+
+That file is the **composition root**, and the box it returns is the container.
+Other ecosystems reach for a DI framework here — Spring, .NET's container. For
+five objects, 59 lines and no library is the right size.
+
+`container_mod.build()` — `app/container.py`, 59 lines — is that root: the one
+place in the entire service where a concrete implementation is chosen.
 
 ```mermaid
 flowchart TD
@@ -140,12 +171,81 @@ The `Container` is a plain dataclass holding those objects:
 The unbuilt ones are `None`, and every reader checks. `/doctor` reports them as
 `"not wired yet"` rather than as failures.
 
+**How a request reaches it.** Three hops, all boring:
+
+```
+app.state.container            # set once, at startup
+  → container(request)         # api.py:13 -- returns request.app.state.container
+    → c.projects_for(viewer)   # builds the per-request redacting repo
+```
+
+One long-lived box, and one short-lived wrapper built per request out of it.
+That split is the shape of the whole service: connection pools and caches live
+for the process, redaction lives for the request.
+
 **Why one file matters.** Everything above the adapter layer depends on an
 *interface*, never on an implementation. Moving project data from Sheets to a
 database means writing a second adapter and adding one branch here. Nothing else
 changes — not the tools, not the prompt, not the API. `tests/test_layering.py`
 enforces this by walking the imports of every file: anything outside
 `container.py` importing `app.adapters` fails the suite.
+
+**Watch it work.** Suppose project data moves from Sheets to Postgres.
+
+Today, the class name appears once:
+
+```python
+# container.py -- the ONE place a concrete class is named
+projects = ExecApiProjectRepo(portal)
+```
+
+The route handler touches the container, but never names a class:
+
+```python
+# chat.py -- the door
+c = container(request)
+repo = c.projects_for(viewer)      # receives an object
+async for event in c.runtime.stream(..., repo=repo, ...):
+```
+
+And the layer below receives the object as an argument:
+
+```python
+# tools.py -- has never heard of the container, or of Sheets
+async def search_projects(repo: ProjectRepo, *, auth: str, city: str = "", ...):
+    return await repo.search(ProjectFilters(city=city, ...), auth=auth)
+```
+
+The swap is then one line:
+
+```python
+projects = (
+    PostgresProjectRepo(dsn) if cfg.project_source == "postgres"
+    else ExecApiProjectRepo(portal)
+)
+```
+
+`tools.py` unchanged, `agent_pydantic.py` unchanged, the prompt unchanged, the
+API unchanged — because none of them ever wrote `ExecApiProjectRepo`. The payoff
+is not tidiness. It is the size of the diff when the data source moves.
+
+**The container is touched only at the door.** This is the part worth being
+precise about, because it is not the same as a *service locator*, where any
+function reaches into a global box and pulls out what it needs:
+
+```python
+async def search_projects(city=""):
+    repo = get_container().projects        # <- NOT how this works
+```
+
+Two things go wrong with that. A test can no longer hand in a fake without
+patching a global. And — the one that matters — `container.projects` is the
+**unredacted** repo. The entire Client Mode guarantee rests on a tool being
+*handed* the redacting wrapper and having no way to ask for anything else.
+
+So: the container assembles objects once, the route handler opens it once, and
+everything past that point receives its dependencies as parameters and cannot
+see what is inside them.
 
 ### 1.3 Configuration
 
