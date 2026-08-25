@@ -87,3 +87,22 @@ def test_origins_property_drops_blanks():
         allowed_origins=f"{ALLOWED}, ,",
     )
     assert cfg.origins == [ALLOWED]
+
+
+def test_the_headers_a_browser_must_read_are_exposed(app):
+    """Cross-origin JS sees only the CORS safelist unless a header is named
+    here. Retry-After is not on that safelist: without it the PWA's 429 branch
+    read null every time and told a realtor refused for the next hour to "try
+    again in a moment". X-Request-Id is the id they quote when reporting a
+    failure, and it is useless if the page cannot read it.
+    """
+    # A real response, not a preflight: access-control-expose-headers only
+    # appears on the actual request. The app fixture supplies a container, so
+    # this does not build real adapters off whatever .env happens to say.
+    with TestClient(app) as client:
+        r = client.get("/health", headers={"Origin": "http://localhost:4600"})
+    exposed = {
+        h.strip().lower()
+        for h in r.headers.get("access-control-expose-headers", "").split(",")
+    }
+    assert {"retry-after", "x-request-id"} <= exposed

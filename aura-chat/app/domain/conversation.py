@@ -1,13 +1,4 @@
-"""Conversation turns, in a shape no framework owns.
-
-Deliberately not PydanticAI's message type. The wire format between the client
-and this service outlives whichever loop is running underneath, and a client
-that had to speak `ModelMessage` would be pinned to today's framework.
-
-Text only, no tool calls: replaying a tool result from three turns ago would put
-stale prices back in the prompt, which is exactly what the freshness rules
-exist to prevent. The model re-reads what it needs.
-"""
+"""Conversation turns, in a shape no framework owns."""
 
 from enum import StrEnum
 
@@ -24,7 +15,39 @@ class Turn(BaseModel):
     content: str = Field(max_length=8000)
 
 
-# A cap on how much conversation travels with each question. Long enough for the
-# refinements a realtor actually makes ("only detached", "under $1.1M", "compare
-# the best three"), short enough that the prompt does not grow without bound.
 MAX_HISTORY_TURNS = 20
+
+
+MAX_SOURCES = 12
+MAX_CONTENT = 8000
+
+
+def source_line(sources: list[dict]) -> str:
+    """The ids an answer was built from, as one line the model can read."""
+    named = []
+    for s in sources[:MAX_SOURCES]:
+        pid = str(s.get("id") or "").strip()
+        if not pid:
+            continue
+        name = str(s.get("name") or "").strip()
+        named.append(f"{pid} {name}".strip())
+    return f"[projects: {'; '.join(named)}]" if named else ""
+
+
+def turns_from(rows: list[dict], *, limit: int = MAX_HISTORY_TURNS) -> list[Turn]:
+    """Stored rows -> the turns the model is given."""
+    out: list[Turn] = []
+    for row in rows[-limit:]:
+        role = str(row.get("role") or "")
+        if role not in (Role.USER, Role.ASSISTANT):
+            continue
+        content = str(row.get("message") or "")
+        if role == Role.ASSISTANT:
+            line = source_line(row.get("sources") or [])
+            if line:
+                head = content[: MAX_CONTENT - len(line) - 1]
+                content = f"{head}\n{line}" if head else line
+        if not content:
+            continue
+        out.append(Turn(role=Role(role), content=content[:MAX_CONTENT]))
+    return out

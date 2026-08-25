@@ -20,7 +20,7 @@ ONTARIO roll-up).
 | [1](#1) | Dates parse day-first; the sheet is month-first | **High** | 10 of 23 dated projects |
 | [2](#2) | Future dates count as recent changes | **High** | "what changed this week" |
 | [3](#3) | An invented category returns silence, not an error | **High** | any type not in the four buckets |
-| [4](#4) | `compare_projects` takes ids only, the model sends names | **High** | most comparisons |
+| [4](#4) | `compare_projects` takes ids only; and a follow-up has no ids to send | **High** | most comparisons |
 | [5](#5) | 16 projects are unreachable by id | **High** | 16 of 161 |
 | [6](#6) | The empty link column is sent, the filled one is not | Medium | 38 projects with a website |
 | [7](#7) | Id lookup is case-sensitive | Low | `ak-0002` |
@@ -183,6 +183,48 @@ The dev line shows `compare_projects(project_ids=['Cornerstone', 'Reva Westfield
 **Fix.** Lift the resolve-a-name step out of `get_project` into a shared helper
 in `app/tools.py` and use it in both. An ambiguous name should return candidates
 to choose from, exactly as `get_project` already does, rather than nothing.
+
+### Second root cause: a follow-up comparison has no ids to send
+
+Named separately because the fix above does **not** touch it, and reading only
+the first half would leave half the failures in place.
+
+**Symptom.** Q34 "What townhomes are in Oakville?" → Q35 "Compare the first two."
+→ *"I couldn't find those projects by ID."* The dev line shows
+`compare_projects(project_ids=['oakville-townhomes-1', 'oakville-townhomes-2'])`
+— ids that have never existed. The model invented them in the shape it guessed.
+
+**Root cause.** History carries no ids. `_as_messages` in
+`app/adapters/agent_pydantic.py` converts each `Turn` to text and nothing else,
+deliberately — replaying an old tool result would put a stale price back into
+the prompt. The consequence was not intended: with the previous answer reduced
+to prose, "the first two" refers to projects the model can name and cannot
+identify, so it fabricates plausible ids rather than admitting it has none.
+
+A name resolver does not help here. There is no name in
+`['oakville-townhomes-1', ...]` to resolve.
+
+**Reproduce.** A follow-up needs a history array, which the one-shot CLI has no
+way to send, so this goes through the endpoint:
+
+```bash
+curl -N -H "Authorization: Bearer $TOK" -H 'Content-Type: application/json' -d '{"question":"Compare the first two.","history":[{"role":"user","content":"What townhomes are in Oakville?"},{"role":"assistant","content":"Two Oakville townhomes match: Ivy Rogue and New Kleinburg."}]}' "$AURA_BASE/chat"
+```
+
+**Fix.** Phase 4, not a patch. Once `ai_messages` stores each answer with its
+`sources`, the ids the previous turn actually returned are on the server and
+follow-ups resolve against them. The cheap interim — the client keeping ids on
+the assistant turn and sending them back — is deliberately **not** taken: it is
+work Phase 4 deletes, and the client already mints an `answer_id` per answer
+(for feedback) that becomes the `ai_messages` id, so the join is already in
+place waiting for the table.
+
+**Not ambiguity.** Worth saying, because it is the natural first guess: the two
+projects in Q09 have unique names and real ids (AK-0002, AK-0012). The genuine
+ambiguity problem is [#5](#5), and it is worse than same-name-in-two-cities —
+six different Markham projects are all called UnionGlen, in the *same* city, so
+carrying the city forward would not disambiguate them either. Only the builder
+would.
 
 ---
 

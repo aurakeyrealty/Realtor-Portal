@@ -20,6 +20,9 @@ FULL = Project(
     property_type="Condo",
     starting_price=370990,
     occupancy="2027",
+    deposit_pct=10.0,
+    deposit_schedule="$10k on signing, balance to 10% in 180 days",
+    incentives="Free assignment + $10k credit",
     broker_url="https://broker.example/duo",
     drive_url="https://drive.example/duo",
     website_url="https://duo.example",
@@ -82,3 +85,30 @@ def test_no_client_hidden_field_survives_as_a_key_with_a_value():
     out = _for_client(FULL.for_viewer(CLIENT))
     leaked = [f for f in CLIENT_HIDDEN if out.get(f)]
     assert leaked == []
+
+
+def test_carries_the_deposit_and_incentive_the_card_now_shows():
+    """AUR-46. _for_model only carried these, so the card had a price and
+    nothing about the terms behind it."""
+    out = _for_client(FULL)
+    assert out["depositpct"] == 10.0
+    assert out["depositsched"].startswith("$10k on signing")
+    assert out["incentives"] == "Free assignment + $10k credit"
+
+
+def test_the_deposit_keys_are_spelled_the_way_the_sheet_spells_them():
+    """getCity_ emits these names, and one projectCard() renders both a city row
+    and a chat result -- a domain-style key would need a translation layer."""
+    out = _for_client(FULL)
+    for key in ("depositpct", "depositsched", "incentives"):
+        assert key in out
+    assert "deposit_pct" not in out
+    assert "deposit_schedule" not in out
+
+
+def test_deposit_and_incentive_survive_client_mode():
+    """Deliberate, and checked so it cannot be reversed by accident: AUR-55
+    names what Client Mode strips and neither of these is on it."""
+    out = _for_client(FULL.for_viewer(CLIENT))
+    assert out["depositpct"] == 10.0
+    assert out["incentives"] == "Free assignment + $10k credit"

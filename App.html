@@ -114,9 +114,20 @@
       <div class="aura-sub" id="auraSub">Aura Key projects</div>
     </div>
     <button class="aura-chip" id="auraChip" aria-pressed="false" title="Switch mode"><span id="auraChipT">Realtor</span></button>
-    <button class="aura-new" id="auraNew" aria-label="New chat"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg></button>
+    <button class="aura-new" id="auraNew" aria-label="Chats" aria-haspopup="dialog" aria-expanded="false"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 4v4h4"/><path d="M12 8v4l3 2"/></svg></button>
   </div>
   <div class="aura-list" id="auraList" role="log" aria-live="polite" aria-label="Conversation"></div>
+  <div class="aura-hist" id="auraHist" hidden>
+    <div class="aura-hist-sc" id="auraHistScrim"></div>
+    <aside class="aura-hist-p" role="dialog" aria-modal="true" aria-label="Your chats">
+      <div class="aura-hist-hd">
+        <div class="aura-hist-t">Chats</div>
+        <button class="aura-hist-x" id="auraHistX" aria-label="Close chats"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+      </div>
+      <button class="aura-hist-new" id="auraHistNew" type="button"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg><span>New chat</span></button>
+      <div class="aura-hist-list" id="auraHistList"></div>
+    </aside>
+  </div>
   <form class="aura-cmp" id="auraForm" autocomplete="off">
     <textarea id="auraInput" rows="1" placeholder="Ask about projects…" enterkeyhint="send" autocapitalize="sentences" spellcheck="true" maxlength="2000"></textarea>
     <button class="aura-send" id="auraSend" type="submit" aria-label="Send"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>

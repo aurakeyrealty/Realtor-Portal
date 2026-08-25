@@ -22,9 +22,10 @@ var NAV=[
   {v:'onboarding', t:'Bootcamp',        ic:'M12 2l3 6 6 .9-4.5 4.3 1 6.3L12 16.8 6.5 19.5l1-6.3L3 8.9 9 8z'},
   {v:'vacations',  t:'Vacation Tracker',ic:'M2 22l20-8-8-8-4 4-8 4zM11 10l3 3'},
   {v:'websites',   t:'Websites',        ic:'M2 12h20M12 2a15 15 0 0 1 0 20M12 2a15 15 0 0 0 0 20'},
+  {v:'reports',    t:'Aura Reports',    ic:'M4 4h16v16H4zM8 9h8M8 13h5M8 17h3', admin:1},
   {v:'faqs',       t:'FAQs',            ic:'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zM9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.8.4-1 .8-1 1.7M12 17h.01'}
 ];
-var SUB={home:'Your team hub, contacts and events.',cities:'Projects and builders by city.',listings:'Current active listings.',builders:'Builder reps and projects.',contractors:'Trusted concierge contacts.',schools:'Rankings by school.',findschool:'Find the school for an address.',crime:'Crime records by city.',tenants:'Search LTB orders.',basement:"Check a city's registration record.",expenses:'Estimate monthly carrying costs.',callnight:'Call-night attendance.',leaderboard:'Team call leaderboard.',resources:'Guides and tools.',mydeals:'Your deals and follow-ups.',onboarding:'The onboarding bootcamp.',vacations:'Who is away and when.',websites:'Handy website links.',faqs:'Common questions.'};
+var SUB={home:'Your team hub, contacts and events.',cities:'Projects and builders by city.',listings:'Current active listings.',builders:'Builder reps and projects.',contractors:'Trusted concierge contacts.',schools:'Rankings by school.',findschool:'Find the school for an address.',crime:'Crime records by city.',tenants:'Search LTB orders.',basement:"Check a city's registration record.",expenses:'Estimate monthly carrying costs.',callnight:'Call-night attendance.',leaderboard:'Team call leaderboard.',resources:'Guides and tools.',mydeals:'Your deals and follow-ups.',onboarding:'The onboarding bootcamp.',vacations:'Who is away and when.',websites:'Handy website links.',faqs:'Common questions.',reports:'What realtors reported about Aura\u2019s answers.'};
 
 var ICO={star:'M12 2l3 6 6 .9-4.5 4.3 1 6.3L12 16.8 6.5 19.5l1-6.3L3 8.9 9 8z',back:'M19 12H5M12 19l-7-7 7-7',chev:'M9 18l6-6-6-6',x:'M18 6L6 18M6 6l12 12'};
 function ico(name,sz){ sz=sz||15; return '<svg width="'+sz+'" height="'+sz+'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;flex:none"><path d="'+ICO[name]+'"/></svg>'; }
@@ -174,6 +175,18 @@ function isUrl(v){return /^https?:\/\//i.test(String(v||''));}
 function host(u){try{return String(u).replace(/^https?:\/\//,'').replace(/^www\./,'').split('/')[0];}catch(e){return u;}}
 /* website-parity helpers */
 function money(v){ var s=String(v==null?'':v).trim(); if(!s) return ''; var n=s.replace(/[^0-9.]/g,''); if(!n) return s; var f=parseFloat(n); return isNaN(f)?s:'$'+f.toLocaleString('en-US',{maximumFractionDigits:0}); }
+/* A number from the Aura payload (10.0), raw text from the portal ("10%", or a
+   whole sentence). Only a bare number gets a % appended -- a schedule in that
+   cell must not be rewritten into a percentage it never claimed. */
+function pct(v){
+  if(v==null||v==='') return '';
+  if(typeof v==='number') return isFinite(v)?(Math.round(v*10)/10)+'%':'';
+  var t=String(v).trim();
+  return /^[0-9]+(\.[0-9]+)?%?$/.test(t)?t.replace(/%?$/,'%'):t;
+}
+/* Sheet cells run long, and a card is read on a phone. The full text is always
+   one tap away on the builder's page. */
+function clip(s,n){ s=String(s==null?'':s).trim(); return s.length>n?s.slice(0,n-1).replace(/[\s,;.·-]+$/,'')+'…':s; }
 function pick(o,names){ if(!o) return ''; for(var i=0;i<names.length;i++){ for(var k in o){ if(k.toLowerCase()===names[i].toLowerCase() && o[k]!=null && o[k]!=='') return o[k]; } } return ''; }
 function scoreNum(s){ var f=parseFloat(s); return isNaN(f)?-1:f; }
 function scoreTier(s){ var f=scoreNum(s); if(f>=7.6)return'high'; if(f>=6)return'good'; if(f>=4.1)return'fair'; if(f>=0)return'low'; return''; }
@@ -202,7 +215,7 @@ function skel(n){
   for(var i=0;i<(n||3);i++) h+=one; return h;
 }
 function buildNav(){
-  $('navlist').innerHTML=NAV.map(function(n){
+  $('navlist').innerHTML=NAV.filter(function(n){ return !n.admin||AURA_ADMIN; }).map(function(n){
     if(n.g) return '<div class="dr-grp">'+esc(n.g)+'</div>';
     return '<button class="dr-item'+(n.sub?' sub':'')+'" data-v="'+n.v+'"><svg class="dr-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="'+n.ic+'"/></svg>'+esc(n.t)+'</button>';
   }).join('');
@@ -345,6 +358,11 @@ function telBtn(p){ p=String(p||'').trim(); return p?'<a class="lnk" href="tel:'
    o.bits    which fields make the subtitle, in order
    o.project prefer p.project over p.name for the title, as the home rows do
    o.price   show the starting price, which only the chat payload carries
+   o.deposit show the deposit percentage and schedule (chat only)
+   o.incentive show the current incentive (chat only)
+
+   Deposit and incentives are deliberately NOT gated on the mode: AUR-55 names
+   what Client Mode strips and neither is on it.
 
    The pill is derived from `status`, never from an `is_focus` flag: status is a
    confidential field, so in Client Mode it arrives blank and the pill disappears
@@ -356,11 +374,17 @@ function projectCard(p,o){
   if(foc) keys=keys.filter(function(k){ return k!=='status'; });   // the pill already said it
   var bits=keys.map(function(k){ return p[k]; }).filter(Boolean);
   var price=(o.price&&p.starting_price)?money(p.starting_price):'';
+  var dep=o.deposit?pct(p.depositpct):'', sched=o.deposit?clip(p.depositsched,64):'';
+  /* A schedule with no percentage still says something ("$50k on signing"). */
+  var depLine=dep?(dep+' deposit'+(sched?' · '+sched:'')):sched;
+  var inc=o.incentive?clip(p.incentives,110):'';
   return '<div class="card">'
     +(foc?'<span class="pill focus">Focus</span>':'')
     +'<div class="card-t">'+esc((o.project?(p.project||p.name):(p.name||p.project))||'Project')+'</div>'
     +(bits.length?'<div class="card-s">'+esc(bits.join(' · '))+'</div>':'')
     +(price?'<div class="card-s" style="color:var(--ink2);font-weight:600">From '+esc(price)+'</div>':'')
+    +(depLine?'<div class="card-s">'+esc(depLine)+'</div>':'')
+    +(inc?'<div class="card-s card-inc">'+esc(inc)+'</div>':'')
     +'<div class="lnkrow">'+linkBtn('Builder',p.broker_url)+linkBtn('Drive',p.drive_url)+linkBtn('Website',p.website_url)+'</div>'
   +'</div>';
 }
@@ -1817,7 +1841,7 @@ function doLogin(){
     var rem=$('gate_remember'); TOKEN=r.token; WHO=r.name||id;
     var kept=tokenSet(TOKEN,WHO,!rem||rem.checked);
     $('gate_pw').value='';
-    hideGate(); paintNavUser(); route();
+    hideGate(); paintNavUser(); route(); auraWhoAmI();
     /* only on a real sign-in — a renewed session on launch is not an event
        anyone needs told about */
     toast(kept?('Welcome, '+firstName(WHO)):'Signed in, but this device could not save the session — you may need to sign in again next launch.');
@@ -2016,7 +2040,7 @@ function drawWeek(w){
   }).catch(fail);
 }
 function signOut(){
-  TOKEN=null; WHO=null; tokenClear(); paintNavUser();
+  TOKEN=null; WHO=null; AURA_ADMIN=false; tokenClear(); paintNavUser(); buildNav();
   forgetData();
   $('content').innerHTML='';
   showGate();
@@ -2032,13 +2056,14 @@ function forgetData(){
      genuinely personal — a realtor's own questions, and answers that may carry
      commission and builder contacts — and the next person to sign in on this
      phone must not find it waiting. */
-  AURA_TURNS=[]; AURA_MODE='realtor';
-  try{ localStorage.removeItem('ak_aura'); }catch(e){}
+  AURA_TURNS=[]; AURA_MODE='realtor'; AURA_CID=null;
+  if($('aura')) auraPaintMode();
+  try{ localStorage.removeItem('ak_aura'); localStorage.removeItem('ak_aura_fb'); }catch(e){}
 }
 /* the server refused a token we thought was good: expired, revoked, or the
    signing key changed under us */
 function sessionLost(){
-  tokenClear(); TOKEN=null; WHO=null; paintNavUser();
+  tokenClear(); TOKEN=null; WHO=null; AURA_ADMIN=false; paintNavUser(); buildNav();
   forgetData(); $('content').innerHTML='';  // body.gated only hides the shell in CSS
   showGate('Your session expired — please sign in again.');
 }
@@ -2064,8 +2089,11 @@ function dismissInstall(){ try{localStorage.setItem('ak_install','1');}catch(e){
    Authorization header (which would put the bearer token in one). EventSource
    also reconnects on close and cannot tell a finished stream from a dropped one,
    so every answered question would immediately ask itself again. */
-var AURA_MODE='realtor', AURA_TURNS=[], AURA_ABORT=null, AURA_SEQ=0, AURA_HOME='';
+var AURA_MODE='realtor', AURA_TURNS=[], AURA_ABORT=null, AURA_SEQ=0, AURA_HOME='', AURA_CID=null;
 var AURA_MAX_TURNS=20;    /* matches MAX_HISTORY_TURNS on the server; over it is a 422, not a trim */
+/* What localStorage keeps, which is not what the model is sent: a reopened
+   thread can be 200 turns and must not shrink to 20 on the next launch. */
+var AURA_MAX_KEEP=200;
 /* The first thing a realtor sees, so every one of these has to work. "What changed
    this week?" was here and came out: dates in the sheet are month-first and parsed
    day-first, and future dates count as recent (known-issues 1 and 2), so it is the
@@ -2095,6 +2123,7 @@ function loadChat(){
 function closeChat(){
   if(!$('aura')||$('aura').hidden) return;
   auraStop();
+  auraHistClose();
   $('aura').hidden=true;
   document.body.classList.remove('chat');
 }
@@ -2124,7 +2153,7 @@ function auraPaint(){
      only the streaming path formatted markdown, a reopened chat showed the
      asterisks the fresh answer had just hidden. */
   l.replaceChildren();
-  AURA_TURNS.forEach(function(t){
+  AURA_TURNS.forEach(function(t,i){
     var wrap=document.createElement('div');
     wrap.className='aura-msg'+(t.role==='user'?' aura-me':'');
     if(t.role==='user'){
@@ -2136,26 +2165,145 @@ function auraPaint(){
       ai.className='aura-ai';
       auraMd(ai,t.content);
       wrap.appendChild(ai);
+      /* Answers stored before the feedback row existed have no id, and
+         auraFeedbackRow returns null rather than offer an unattributable vote. */
+      var prev=AURA_TURNS[i-1];
+      var fb=auraFeedbackRow(t,(prev&&prev.role==='user')?prev.content:'',i);
+      if(fb) wrap.appendChild(fb);
     }
     l.appendChild(wrap);
   });
   auraBottom();
 }
-/* Flipping the mode clears the thread on purpose. A realtor-only answer must not
-   be one scroll away while a buyer is holding the phone. */
+/* Flipping the mode clears the thread on purpose: a realtor-only answer must not
+   be one scroll away while a buyer is holding the phone.
+
+   auraStop() is the load-bearing line. Clearing AURA_TURNS does nothing to a
+   request already in flight -- its `done` handler pushed the finished
+   Realtor-Mode answer into the freshly-cleared Client-Mode thread, and the next
+   repaint showed it to the buyer. */
 function auraMode(m){
   if(m===AURA_MODE) return;
-  AURA_MODE=m; AURA_TURNS=[]; auraSave(); auraPaint();
+  auraStop();
+  AURA_MODE=m; AURA_TURNS=[]; AURA_CID=null; auraSave(); auraHistClose(); auraPaint();
 }
-function auraNewChat(){ auraStop(); AURA_TURNS=[]; auraSave(); auraPaint(); }
+function auraNewChat(){ auraStop(); AURA_TURNS=[]; AURA_CID=null; auraSave(); auraHistClose(); auraPaint(); }
+
+/* ---- the chats panel (AUR-38, AUR-50) ---- */
+var AURA_HIST_BUSY=false;
+function auraBase(){ return window.AURA_BASE.replace(/\/+$/,''); }
+function auraWhen(iso){
+  var a=ago(iso); if(a) return a;
+  var d=new Date(iso);
+  return isNaN(d.getTime())?'':d.toLocaleDateString('en-CA',{month:'short',day:'numeric'});
+}
+function auraHistMsg(text,bad){
+  var d=document.createElement('div');
+  d.className='aura-hist-msg'+(bad?' bad':'');
+  d.textContent=text;
+  $('auraHistList').replaceChildren(d);
+}
+function auraHistOpen(){
+  var h=$('auraHist'); if(!h) return;
+  h.hidden=false;
+  requestAnimationFrame(function(){ h.classList.add('on'); });
+  $('auraNew').setAttribute('aria-expanded','true');
+  $('auraHistX').focus();
+  auraHistLoad();
+}
+function auraHistClose(){
+  var h=$('auraHist'); if(!h||h.hidden) return;
+  h.classList.remove('on');
+  $('auraNew').setAttribute('aria-expanded','false');
+  setTimeout(function(){ if(!h.classList.contains('on')) h.hidden=true; },220);
+}
+function auraHistLoad(){
+  if(AURA_HIST_BUSY) return;
+  AURA_HIST_BUSY=true;
+  auraHistMsg('Loading…');
+  fetch(auraBase()+'/conversations',{headers:{'Authorization':'Bearer '+TOKEN}})
+  .then(function(r){
+    if(r.status===401||r.status===403){ closeChat(); sessionLost(); return null; }
+    if(r.status===503) throw new Error('unavailable');
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    return r.json();
+  }).then(function(d){ if(d) auraHistPaint(d.conversations||[]); })
+  .catch(function(e){
+    auraHistMsg(navigator.onLine===false
+      ? 'You are offline. Earlier chats need a connection.'
+      : (String(e.message)==='unavailable'
+        ? 'Earlier chats are unavailable right now. Asking still works.'
+        : 'Could not load your chats.'),true);
+  }).then(function(){ AURA_HIST_BUSY=false; });
+}
+function auraHistPaint(list){
+  if(!list.length){ auraHistMsg('No earlier chats yet.'); return; }
+  var box=$('auraHistList');
+  box.replaceChildren();
+  list.forEach(function(c){
+    var b=document.createElement('button');
+    b.type='button';
+    b.className='aura-hist-row'+(c.id===AURA_CID?' on':'');
+    if(c.id===AURA_CID) b.setAttribute('aria-current','true');
+    var t=document.createElement('div'); t.className='aura-hist-ttl';
+    t.textContent=c.title||'Untitled chat';
+    b.appendChild(t);
+    var m=document.createElement('div'); m.className='aura-hist-meta';
+    if(c.mode==='client'){
+      var dot=document.createElement('span');
+      dot.className='aura-hist-dot'; dot.setAttribute('aria-hidden','true');
+      var lbl=document.createElement('span'); lbl.textContent='Client';
+      m.appendChild(dot); m.appendChild(lbl);
+    }
+    var w=document.createElement('span'); w.textContent=auraWhen(c.updated_at);
+    m.appendChild(w);
+    b.appendChild(m);
+    b.addEventListener('click',function(){ auraOpenThread(c.id); });
+    box.appendChild(b);
+  });
+}
+/* The header is repainted from the STORED mode before a single turn renders. */
+function auraOpenThread(cid){
+  if(cid===AURA_CID){ auraHistClose(); return; }
+  auraStop();
+  auraHistMsg('Opening…');
+  fetch(auraBase()+'/conversations/'+encodeURIComponent(cid),{
+    headers:{'Authorization':'Bearer '+TOKEN}
+  }).then(function(r){
+    if(r.status===401||r.status===403){ closeChat(); sessionLost(); return null; }
+    if(r.status===404) throw new Error('gone');
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    return r.json();
+  }).then(function(d){
+    if(!d) return;
+    AURA_MODE=d.mode==='client'?'client':'realtor';
+    AURA_CID=d.conversation_id;
+    /* Cards are deliberately NOT rebuilt -- see known-issues 5. */
+    AURA_TURNS=(d.messages||[]).map(function(m){
+      return {
+        role:m.role==='user'?'user':'assistant',
+        content:m.message||'',
+        id:m.id,
+        pids:(m.sources||[]).map(function(x){ return x.id; }).filter(Boolean)
+      };
+    }).filter(function(t){ return t.content; });
+    auraSave();
+    auraHistClose();
+    auraPaint();
+  }).catch(function(e){
+    auraHistMsg(String(e.message)==='gone'
+      ? 'That chat is no longer there.'
+      : 'Could not open that chat.',true);
+  });
+}
 
 function auraSave(){
-  try{ localStorage.setItem('ak_aura',JSON.stringify({m:AURA_MODE,t:AURA_TURNS.slice(-AURA_MAX_TURNS)})); }catch(e){}
+  try{ localStorage.setItem('ak_aura',JSON.stringify({m:AURA_MODE,c:AURA_CID,t:AURA_TURNS.slice(-AURA_MAX_KEEP)})); }catch(e){}
 }
 function auraLoad(){
   try{
     var o=JSON.parse(localStorage.getItem('ak_aura')||'null');
-    if(o&&o.t&&o.t.length){ AURA_MODE=o.m==='client'?'client':'realtor'; AURA_TURNS=o.t.slice(-AURA_MAX_TURNS); }
+    if(o&&o.t&&o.t.length){ AURA_MODE=o.m==='client'?'client':'realtor'; AURA_TURNS=o.t.slice(-AURA_MAX_KEEP); AURA_CID=o.c||null; }
   }catch(e){}
 }
 
@@ -2215,6 +2363,7 @@ function auraSay(detail){
   if(/login required|unauthor/i.test(m)) return 'Aura could not read our records with your session. Sign out and back in.';
   if(/not configured/i.test(m)) return 'Aura is not finished being set up. Tell whoever runs the portal.';
   if(/timeout|timed out/i.test(m)) return 'That took too long. Try again in a moment.';
+  if(/too many requests/i.test(m)) return 'You have asked Aura a lot in the last hour. Try again shortly.';
   return m||'Something went wrong.';
 }
 /* ---- the answer, rendered -------------------------------------------------
@@ -2310,11 +2459,188 @@ function auraStop(){
   auraBusy(false);
 }
 
+/* ---- Feedback (AUR-59, AUR-60) ----
+   Never rendered in Client Mode: the phone is turned toward a buyer, and a
+   tappable "Report data issue" invites them to press it. Checked at render time,
+   so a mode flip repaints it away. */
+
+/* Value is the server's enum, label is what a realtor reads. */
+var AURA_ISSUES=[
+  ['price_incorrect','Price incorrect'],
+  ['deposit_incorrect','Deposit incorrect'],
+  ['incentive_outdated','Incentive outdated'],
+  ['occupancy_incorrect','Occupancy incorrect'],
+  ['missing_project','Missing project'],
+  ['source_outdated','Source outdated'],
+  ['other','Other']
+];
+/* Client-minted because until Phase 4 there is no server-side message to key
+   on; it becomes the ai_messages id then. */
+function auraUid(){
+  try{ return crypto.randomUUID(); }catch(e){}
+  return 'a-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,10);
+}
+function auraIco(d){
+  return '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
+    +'stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="'+d+'"/></svg>';
+}
+var AURA_UP='M7 11v9H4a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1zM7 11l4.2-8a2.2 2.2 0 0 1 3 2.9L13 9h5.4a2 2 0 0 1 2 2.4l-1.4 6.4a2 2 0 0 1-2 1.6H7';
+var AURA_DOWN='M7 13V4h-3a1 1 0 0 0-1 1v7a1 1 0 0 0 1 1zM7 13l4.2 8a2.2 2.2 0 0 0 3-2.9L13 15h5.4a2 2 0 0 0 2-2.4l-1.4-6.4a2 2 0 0 0-2-1.6H7';
+
+function auraPostFeedback(payload){
+  if(!auraReady()||!TOKEN) return Promise.reject(new Error('no session'));
+  return fetch(window.AURA_BASE.replace(/\/+$/,'')+'/feedback',{
+    method:'POST',
+    headers:{'Content-Type':'application/json','Authorization':'Bearer '+TOKEN},
+    body:JSON.stringify(payload)
+  }).then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return true; });
+}
+
+/* Votes are remembered per conversation and position, not per turn.id: the id a
+   live answer carries is client-minted and the one a reopened answer carries
+   comes from the server, so the two never match and a reopened thread offered
+   fresh thumbs on an answer already judged. */
+function auraVoted(){
+  try{ return JSON.parse(localStorage.getItem('ak_aura_fb')||'{}')||{}; }catch(e){ return {}; }
+}
+function auraVoteKey(idx){ return AURA_CID?(AURA_CID+':'+idx):''; }
+function auraMarkVoted(idx,verdict){
+  var k=auraVoteKey(idx); if(!k) return;
+  try{ var v=auraVoted(); v[k]=verdict; localStorage.setItem('ak_aura_fb',JSON.stringify(v)); }catch(e){}
+}
+
+function auraFeedbackRow(turn,question,idx){
+  if(AURA_MODE==='client'||!turn||!turn.id||!String(question||'').trim()) return null;
+  if(!turn.fb){
+    var seen=auraVoted()[auraVoteKey(idx)];
+    if(seen) turn.fb=seen;
+  }
+  var row=document.createElement('div');
+  row.className='aura-fb';
+
+  function settled(msg){ row.replaceChildren(); row.className='aura-fb fb-done'; row.textContent=msg; }
+  function thanks(verdict){ settled(verdict==='up'?'Thanks — noted.':'Thanks — reported.'); }
+
+  if(turn.fb){ thanks(turn.fb); return row; }
+
+  /* turn.fb is written only after the POST resolves -- otherwise a reopened
+     chat says "Thanks" for a report that never left the phone.
+
+     `verdict` may be null: a data issue is a claim about the sheet, not a
+     judgement of the answer, and filing it as a thumbs-down corrupts AUR-59. */
+  function send(verdict,category,note){
+    row.replaceChildren();
+    row.className='aura-fb fb-done';
+    row.textContent='Sending…';
+    auraPostFeedback({
+      answer_id:turn.id, question:clip(question,500), verdict:verdict||null,
+      category:category||null, note:clip(note,200), project_ids:(turn.pids||[]).slice(0,12)
+    }).then(function(){
+      turn.fb=verdict||'report'; auraMarkVoted(idx,turn.fb); auraSave();
+      thanks(verdict);
+    }).catch(function(){
+      row.replaceChildren();
+      row.className='aura-fb fb-fail';
+      var t=document.createElement('span'); t.textContent='Could not send that.';
+      var again=document.createElement('button'); again.type='button'; again.textContent='Try again';
+      again.addEventListener('click',function(){ send(verdict,category,note); });
+      row.appendChild(t); row.appendChild(again);
+    });
+  }
+
+  function vote(v){
+    var b=document.createElement('button');
+    b.type='button'; b.className='aura-fbv';
+    b.setAttribute('aria-label',v==='up'?'Helpful':'Not helpful');
+    b.innerHTML=auraIco(v==='up'?AURA_UP:AURA_DOWN);
+    /* Thumbs-down carries its vote into the sheet, so the vote survives even
+       if the realtor skips the detail. */
+    b.addEventListener('click',function(){ v==='up'?send('up',null,''):sheet('down'); });
+    return b;
+  }
+
+  /* verdict: 'down' from the thumb, null from "Report data issue". Decides what
+     gets filed and whether the left button is Skip or Cancel. */
+  function sheet(verdict){
+    row.replaceChildren();
+    row.className='aura-fb fb-open';
+    var h=document.createElement('div'); h.className='aura-fb-h'; h.textContent="What's wrong with it?";
+    row.appendChild(h);
+    var grid=document.createElement('div'); grid.className='aura-fb-cats';
+    var chosen='';
+    AURA_ISSUES.forEach(function(c){
+      var b=document.createElement('button');
+      b.type='button'; b.className='aura-fb-cat'; b.textContent=c[1];
+      b.setAttribute('aria-pressed','false');
+      b.addEventListener('click',function(){
+        chosen=c[0];
+        grid.querySelectorAll('.aura-fb-cat').forEach(function(x){
+          var on=x===b; x.classList.toggle('on',on); x.setAttribute('aria-pressed',on?'true':'false');
+        });
+        sync();
+      });
+      grid.appendChild(b);
+    });
+    row.appendChild(grid);
+    var note=document.createElement('input');
+    note.className='aura-fb-note'; note.type='text'; note.maxLength=200;
+    note.placeholder='Anything else? (optional)';
+    note.setAttribute('aria-label','Extra detail');
+    row.appendChild(note);
+    var acts=document.createElement('div'); acts.className='aura-fb-acts';
+    var left=document.createElement('button');
+    left.type='button'; left.className='aura-fb-skip';
+    left.textContent=verdict?'Skip':'Cancel';
+    /* Skip carries the note -- it sits under the note field and reads as "skip
+       the category", not "discard what I typed". */
+    left.addEventListener('click',function(){
+      if(verdict) send(verdict,null,note.value); else buttons();
+    });
+    var go=document.createElement('button');
+    go.type='button'; go.className='aura-fb-go'; go.textContent='Send report'; go.disabled=true;
+    go.addEventListener('click',function(){ send(verdict,chosen,note.value); });
+    /* A note with no category is still a report, so it enables Send too. */
+    function sync(){ go.disabled=!chosen&&!note.value.trim(); }
+    note.addEventListener('input',sync);
+    acts.appendChild(left); acts.appendChild(go);
+    row.appendChild(acts);
+    auraBottom();
+  }
+
+  /* A function because Cancel comes back to it. */
+  function buttons(){
+    row.replaceChildren();
+    row.className='aura-fb';
+    row.appendChild(vote('up'));
+    row.appendChild(vote('down'));
+    var rep=document.createElement('button');
+    rep.type='button'; rep.className='aura-fb-rep'; rep.textContent='Report data issue';
+    rep.addEventListener('click',function(){ sheet(null); });
+    row.appendChild(rep);
+  }
+
+  buttons();
+  return row;
+}
+
+/* last_updated reaches the client and is deliberately NOT rendered: 10 of the
+   23 dated projects parse wrong today (known-issues 1), so a freshness line
+   would be a confident wrong date on nearly half. Render it with the fix. */
+function auraCards(list){
+  return (list||[]).map(function(p){
+    return projectCard(p,{price:true,deposit:true,incentive:true});
+  }).join('');
+}
+
 function auraAsk(q){
   q=String(q||'').trim();
   if(!q||AURA_ABORT) return;
   if(!TOKEN){ closeChat(); showGate(); return; }
-  var history=AURA_TURNS.slice(-AURA_MAX_TURNS);
+  /* Sent only until the server owns the thread. With a conversation id the
+     server has the real turns and ignores these, so shipping them is just
+     tokens and a claim the client is not entitled to make. Kept for phones that
+     have not updated, and for the first question of a new chat. */
+  var history=AURA_CID?[]:AURA_TURNS.slice(-AURA_MAX_TURNS).map(function(t){ return {role:t.role,content:t.content}; });
   var l=$('auraList');
   if(!AURA_TURNS.length) l.innerHTML='';          // clear the starter prompts
   /* Kept by reference, not by position. Retry used to pop() the last turn on the
@@ -2329,7 +2655,7 @@ function auraAsk(q){
     +'<div class="aura-msg" id="'+id+'"><div class="aura-step">Thinking…</div><div class="aura-ai on"></div><div class="aura-cards"></div></div>');
   auraBottom(); auraBusy(true);
   var wrap=$(id), step=wrap.querySelector('.aura-step'),
-      body=wrap.querySelector('.aura-ai'), cards=wrap.querySelector('.aura-cards'), text='';
+      body=wrap.querySelector('.aura-ai'), cards=wrap.querySelector('.aura-cards'), text='', pids=[];
   function finish(){ AURA_ABORT=null; auraBusy(false); if(step&&step.parentNode) step.remove(); body.classList.remove('on'); }
   function failed(msg){
     finish();
@@ -2348,15 +2674,29 @@ function auraAsk(q){
   fetch(window.AURA_BASE.replace(/\/+$/,'')+'/chat',{
     method:'POST',
     headers:{'Content-Type':'application/json','Authorization':'Bearer '+TOKEN},
-    body:JSON.stringify({question:q,mode:AURA_MODE,history:history}),
+    body:JSON.stringify({question:q,mode:AURA_MODE,history:history,conversation_id:AURA_CID}),
     signal:AURA_ABORT.signal
   }).then(function(r){
     if(r.status===401||r.status===403){ closeChat(); sessionLost(); return null; }
+    if(r.status===429){
+      var wait=parseInt(r.headers.get('Retry-After')||'0',10);
+      failed(wait>90
+        ? 'You have asked Aura a lot in the last hour. Try again in about '+Math.ceil(wait/60)+' minutes.'
+        : 'You have asked Aura a lot in the last hour. Try again in a moment.');
+      return null;
+    }
     if(!r.ok||!r.body) throw new Error('HTTP '+r.status);
     return auraStream(r.body,function(ev){
       if(ev.type==='start'){
         /* The mode the server actually applied, not the one we believe we sent. */
         AURA_MODE=ev.mode==='client'?'client':'realtor'; auraPaintMode();
+        /* Assigned unconditionally, including back to null. Only setting it
+           when truthy made a stale id permanent: the server refuses one it does
+           not own and answers null, and the old code kept the refused id -- so
+           every later question sent it again with an empty history, and the
+           thread was never stored and never had context. Null here means the
+           server has no store; we go back to sending our own turns. */
+        AURA_CID=ev.conversation_id||null;
       } else if(ev.type==='tool'){ if(step) step.textContent=auraStep(ev); }
       else if(ev.type==='tool_result'){ if(step&&ev.count) step.textContent+=' found '+ev.count; }
       else if(ev.type==='text'){
@@ -2366,13 +2706,19 @@ function auraAsk(q){
         auraBottom();
       }
       else if(ev.type==='projects'){
-        cards.innerHTML=(ev.projects||[]).map(function(p){ return projectCard(p,{price:true}); }).join('');
+        cards.innerHTML=auraCards(ev.projects);
+        /* Ids only: feedback needs to say which project a report is about. */
+        pids=(ev.projects||[]).map(function(p){ return p.id; }).filter(Boolean);
         auraBottom();
       }
       else if(ev.type==='done'){
         finish();
-        AURA_TURNS.push({role:'assistant',content:text});
-        auraSave(); auraBottom();
+        var ansTurn={role:'assistant',content:text,id:auraUid(),pids:pids};
+        AURA_TURNS.push(ansTurn);
+        auraSave();
+        var fb=auraFeedbackRow(ansTurn,q,AURA_TURNS.length-1);
+        if(fb) wrap.appendChild(fb);
+        auraBottom();
       }
       else if(ev.type==='error'){ failed(auraSay(ev.detail)); }
     }).then(function(ended){
@@ -2388,9 +2734,81 @@ function auraAsk(q){
   });
 }
 
+/* ---- the reports queue (AUR-62) ---- */
+var AURA_ADMIN=false;
+function auraWhoAmI(){
+  if(!auraReady()||!TOKEN) return;
+  fetch(auraBase()+'/me',{headers:{'Authorization':'Bearer '+TOKEN}})
+    .then(function(r){ return r.ok?r.json():null; })
+    .then(function(d){
+      if(!d||!d.admin||AURA_ADMIN) return;
+      AURA_ADMIN=true;
+      buildNav();                       // the row was filtered out a moment ago
+      var here=(location.hash||'#home').replace(/^#/,'').split('/')[0];
+      $('navlist').querySelectorAll('.dr-item').forEach(function(b){
+        b.classList.toggle('on',b.dataset.v===here);
+      });
+    }).catch(function(){ /* the drawer is simply one row shorter */ });
+}
+function auraIssueLabel(v){
+  var hit=AURA_ISSUES.filter(function(c){ return c[0]===v; })[0];
+  return hit?hit[1]:(v||'');
+}
+function reportCard(r){
+  var cls=r.verdict==='up'?'pine':(r.verdict==='down'?'rust':'ochre');
+  var badge=r.verdict==='up'?'Helpful':(r.verdict==='down'?'Not helpful':'Data issue');
+  return '<div class="card">'
+    +'<span class="pill '+cls+'">'+esc(badge)+'</span>'
+    +(r.category?'<span class="pill">'+esc(auraIssueLabel(r.category))+'</span>':'')
+    +'<div class="card-t" style="margin-top:9px">'+esc(r.question||'(no question recorded)')+'</div>'
+    +(r.note?'<div class="card-s">'+esc(r.note)+'</div>':'')
+    +kv('Projects',(r.project_ids||[]).join(', '))
+    +kv('Reported by',r.user_id)
+    +kv('When',auraWhen(r.created_at))
+    +'</div>';
+}
+function loadReports(){
+  if(!auraReady()){ $('content').innerHTML='<div class="empty">Aura is not set up here.</div>'; return; }
+  $('content').innerHTML=skel(3);
+  fetch(auraBase()+'/feedback?limit=200',{headers:{'Authorization':'Bearer '+TOKEN}})
+  .then(function(r){
+    if(r.status===401){ sessionLost(); return null; }
+    if(r.status===403) throw new Error('admin only');
+    if(r.status===503) throw new Error('unavailable');
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    return r.json();
+  }).then(function(d){
+    if(!d) return;
+    var rows=d.feedback||[];
+    if(!rows.length){ $('content').innerHTML='<div class="empty">No reports yet. That is the good outcome.</div>'; return; }
+    $('content').innerHTML='<div class="lnkrow" style="margin-bottom:12px">'
+      +'<button class="lnk" id="repCsv" type="button">Download CSV</button></div>'
+      +'<p class="sec-h">'+rows.length+(rows.length===1?' report':' reports')+'</p>'
+      +rows.map(reportCard).join('');
+    $('repCsv').addEventListener('click',reportsCsv);
+  }).catch(function(e){
+    var m=String(e.message);
+    $('content').innerHTML='<div class="err">'+esc(
+      m==='admin only' ? 'This screen is for the data owner.'
+      : m==='unavailable' ? 'The report queue is unavailable right now.'
+      : 'Could not load the reports.')+'</div>';
+  });
+}
+function reportsCsv(){
+  fetch(auraBase()+'/feedback.csv?limit=500',{headers:{'Authorization':'Bearer '+TOKEN}})
+  .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.blob(); })
+  .then(function(b){
+    var url=URL.createObjectURL(b), a=document.createElement('a');
+    a.href=url; a.download='aura-reports.csv';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function(){ URL.revokeObjectURL(url); },1000);
+  }).catch(function(){ toast('Could not download the reports.'); });
+}
+
 (function auraWire(){
   if(!auraReady()) return;
   LOAD.chat=loadChat;
+  LOAD.reports=loadReports;
   $('askFab').hidden=false;
   document.body.classList.add('fab');
   auraLoad();
@@ -2402,7 +2820,13 @@ function auraAsk(q){
     go('chat');
   });
   $('auraBack').addEventListener('click',function(){ go(AURA_HOME||'home'); });
-  $('auraNew').addEventListener('click',auraNewChat);
+  $('auraNew').addEventListener('click',auraHistOpen);
+  $('auraHistX').addEventListener('click',auraHistClose);
+  $('auraHistScrim').addEventListener('click',auraHistClose);
+  $('auraHistNew').addEventListener('click',auraNewChat);
+  document.addEventListener('keydown',function(e){
+    if(e.key==='Escape'&&!$('auraHist').hidden) auraHistClose();
+  });
   $('auraChip').addEventListener('click',function(){ auraMode(AURA_MODE==='client'?'realtor':'client'); });
   $('auraForm').addEventListener('submit',function(e){
     e.preventDefault();
@@ -2495,7 +2919,7 @@ function boot(){
   if(!stored){ tokenClear(); showGate(); return; }
 
   if(tokenAlive(stored)){
-    TOKEN=stored; hideGate(); route(); verifySession(stored);
+    TOKEN=stored; hideGate(); route(); auraWhoAmI(); verifySession(stored);
     return;
   }
   /* The device clock puts this past the window — but a phone with a wrong clock
@@ -2503,7 +2927,7 @@ function boot(){
      offline there is no ruling to be had, and gated is the safe answer. */
   showGate();
   call('session',{auth:stored}).then(function(r){
-    if(r&&r.ok&&r.token){ TOKEN=r.token; tokenSet(TOKEN,WHO); hideGate(); paintNavUser(); route(); return; }
+    if(r&&r.ok&&r.token){ TOKEN=r.token; tokenSet(TOKEN,WHO); hideGate(); paintNavUser(); route(); auraWhoAmI(); return; }
     tokenClear();
   }).catch(function(){ showGate('You’re offline — sign in once you’re connected.'); });
 }

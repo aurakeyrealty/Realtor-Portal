@@ -1,10 +1,4 @@
-"""AgentRuntime on PydanticAI.
-
-The ONLY file in the service that imports an agent framework. Tools here are
-thin wrappers over app.tools, which know nothing about PydanticAI -- so swapping
-this for LangGraph, the OpenAI Agents SDK or a hand-rolled loop is a rewrite of
-this file and nothing else.
-"""
+"""AgentRuntime on PydanticAI."""
 
 import asyncio
 from collections.abc import AsyncIterator
@@ -32,35 +26,21 @@ from app.domain import ChatMode, Claims, Project, Turn
 from app.ports import ProjectRepo
 from app.prompts import system_prompt
 
-# A hard stop on the tool loop. Without it a model that keeps re-searching turns
-# one question into an unbounded bill and a realtor watching a spinner: the
-# framework's own default is 50 round trips, which is not a limit anyone chose.
 MAX_STEPS = 6
 LIMITS = UsageLimits(request_limit=MAX_STEPS)
 
 
 @dataclass
 class Deps:
-    """Everything a tool needs, carried through the run.
-
-    `repo` is already a RedactingProjectRepo built for this viewer, so a tool
-    here cannot reach an unredacted record even by accident.
-    """
+    """Everything a tool needs, carried through the run."""
 
     repo: ProjectRepo
     auth: str
-    # Tool results, kept as they are produced. The UI renders cards from THESE,
-    # not from the model's prose -- restating numbers is how numbers drift.
     collected: list[Project] = field(default_factory=list)
 
 
 def _as_messages(history: list[Turn] | None) -> list[Any] | None:
-    """Our turns, in the shape the framework wants.
-
-    Only text crosses over. Replaying an old tool result would put a price the
-    sheet has since changed back into the prompt, and the model would have no
-    way to know it was stale.
-    """
+    """Our turns, in the shape the framework wants."""
     if not history:
         return None
     out: list[Any] = []
@@ -73,12 +53,7 @@ def _as_messages(history: list[Turn] | None) -> list[Any] | None:
 
 
 def _for_model(p: Project) -> dict[str, Any]:
-    """One project as the model should see it.
-
-    Empty fields are dropped rather than sent as "": a page of blanks teaches a
-    model that missing data is normal and invites it to fill the gaps. What is
-    absent should be absent.
-    """
+    """One project as the model should see it."""
     out: dict[str, Any] = {"id": p.id, "name": p.name, "city": p.city}
     optional = {
         "builder": p.builder,
@@ -99,25 +74,7 @@ def _for_model(p: Project) -> dict[str, Any]:
 
 
 def _for_client(p: Project) -> dict[str, Any]:
-    """One project as the PWA's card renderer should see it.
-
-    Deliberately NOT _for_model. That shape is tuned for a language model: it
-    drops the three link columns entirely and sends `source`, which is empty on
-    every row in the sheet -- a card built from it would carry no links at all.
-
-    The field names here are the portal row's, not the domain model's, so the
-    same `projectCard()` in the PWA renders a chat result and a city-screen row
-    with no translation between them.
-
-    `status` rather than `is_focus` is the reason the Focus pill behaves: status
-    is a confidential field, so in Client Mode it arrives blank and the pill
-    disappears on its own. `is_focus` is not confidential, and keying the pill
-    on it would show a buyer an internal designation.
-
-    Empties are kept, not dropped: linkBtn() and the renderer already treat ""
-    as "no link", and a stable set of keys is easier for a client to reason
-    about than a model's prose.
-    """
+    """One project as the PWA's card renderer should see it."""
     return {
         "id": p.id,
         "name": p.name,
@@ -127,6 +84,9 @@ def _for_client(p: Project) -> dict[str, Any]:
         "type": p.property_type,
         "starting_price": p.starting_price,
         "occupancy": p.occupancy,
+        "depositpct": p.deposit_pct,
+        "depositsched": p.deposit_schedule,
+        "incentives": p.incentives,
         "last_updated": p.last_updated.isoformat() if p.last_updated else None,
         "broker_url": p.broker_url,
         "drive_url": p.drive_url,
@@ -144,10 +104,6 @@ def build_agent(model: Model | str, *, client_mode: bool, max_tokens: int = 1500
     )
 
     def _keep(ctx: RunContext[Deps], found: list[Project]) -> list[dict[str, Any]]:
-        # Each id joins `seen` as it is accepted, not from a snapshot taken
-        # beforehand: two rows can share a PROJECT ID while the column is being
-        # entered by hand, and the realtor would otherwise get the same card
-        # twice with no way to tell which row is authoritative.
         seen = {p.id for p in ctx.deps.collected}
         for p in found:
             if p.id not in seen:
@@ -169,21 +125,7 @@ def build_agent(model: Model | str, *, client_mode: bool, max_tokens: int = 1500
         focus_only: bool | None = None,
         query: str = "",
     ) -> dict[str, Any]:
-        """Find projects matching a brief.
-
-        categories are: detached, semi, townhome, condo. Prices are whole
-        dollars. Put every constraint in one call rather than searching twice.
-
-        Returns `showing` results out of `total` that matched. When they differ
-        you are holding a page, not the inventory: say "12 of 41", and do not
-        count, list cities, or name a cheapest from it -- call
-        inventory_summary, which sees all 41.
-
-        focus_only=True returns only the brokerage's focus projects -- the ones
-        it is actively pushing. Use it for "what should I be selling?", "what
-        are our focus projects?", "what are we promoting?". Leave it unset
-        unless the realtor asked; it is not a quality ranking.
-        """
+        """Find projects matching a brief."""
         found = await tools.search_projects(
             ctx.deps.repo,
             auth=ctx.deps.auth,
@@ -214,25 +156,7 @@ def build_agent(model: Model | str, *, client_mode: bool, max_tokens: int = 1500
         query: str = "",
         spotlight: str = "none",
     ) -> dict[str, Any]:
-        """Counts and names over EVERY match, not a page of them.
-
-        Use this, never search_projects, for any question whose answer is a
-        claim about all of them: "how many do we have", "which cities are we
-        in", "who do we work with", "what is the cheapest", "do we have
-        anything in Milton". search_projects is capped, so counting or
-        picking a minimum from its results describes the page, not the
-        brokerage.
-
-        Filters are the same as search_projects; leave them all unset to
-        summarise the whole inventory.
-
-        `spotlight` decides which of cheapest/dearest becomes a **card** on the
-        realtor's screen: "cheapest", "dearest", "both", or "none" (default).
-        Both records are returned to you either way -- this only controls what
-        is shown. Set it when the realtor asked to see that project ("the
-        cheapest in Brampton", "what's our priciest"); leave it alone for
-        counts, city lists and builder lists, which produce no cards at all.
-        """
+        """Counts and names over EVERY match, not a page of them."""
         s = await tools.inventory_summary(
             ctx.deps.repo,
             auth=ctx.deps.auth,
@@ -251,16 +175,9 @@ def build_agent(model: Model | str, *, client_mode: bool, max_tokens: int = 1500
         }
         if s.names_truncated:
             out["names_note"] = f"first {len(s.names)} names of {s.total}, alphabetical"
-        # Both records always go back to the model; only the CARD is conditional.
-        # This used to card both every time, which meant "how many projects do we
-        # have?" answered "158 across 36 cities" and then showed the realtor the
-        # cheapest and dearest projects underneath -- two cards contradicting an
-        # answer that was not about them. Naming a project is still showing it,
-        # so the exception survives; it just needs the model to say the question
-        # was about that project.
         show = spotlight.strip().lower()
         if show not in ("none", "cheapest", "dearest", "both"):
-            show = "none"          # an unknown value shows nothing, never everything
+            show = "none"
         if s.cheapest is not None:
             card = show in ("cheapest", "both")
             out["cheapest"] = _keep(ctx, [s.cheapest])[0] if card else _for_model(s.cheapest)
@@ -276,22 +193,11 @@ def build_agent(model: Model | str, *, client_mode: bool, max_tokens: int = 1500
 
     @agent.tool
     async def get_project(ctx: RunContext[Deps], project_id_or_name: str) -> dict[str, Any]:
-        """The current record for one project, by id or by its exact name.
-
-        If the name is not exact, or two projects share it, this returns
-        found=false -- use search_projects, do not conclude the project does not
-        exist.
-        """
+        """The current record for one project, by id or by its exact name."""
         found = await tools.get_project(ctx.deps.repo, project_id_or_name, auth=ctx.deps.auth)
         if found is not None:
             return {"found": True, **_keep(ctx, [found])[0]}
 
-        # A bare null reads to a model as "no such project", which is how Aura
-        # came to deny that projects in its own sheet existed. Telling it to go
-        # and search was not enough -- it often did not. So do the search here
-        # and hand back what turned up: two Brampton projects really are both
-        # called "Mayfield Village", and the realtor needs to be asked which,
-        # not told neither exists.
         near = await tools.search_projects(
             ctx.deps.repo, auth=ctx.deps.auth, query=project_id_or_name
         )
@@ -331,15 +237,8 @@ class PydanticAgentRuntime:
         self._api_key = api_key
         self._model_name = model_name
         self._max_tokens = max_tokens
-        # Injected in tests as a scripted model, so the whole loop can be
-        # exercised without a network call or a bill.
         self._model = model
         self._built: Model | None = None
-        # One agent per mode, built on first use. A provider owns an AsyncOpenAI
-        # client and its connection pool, and nothing here closes one -- building
-        # them per request leaves a pool per message until the process runs out
-        # of sockets. Tool registration is per-agent too, so this also stops four
-        # tools being re-registered on every question.
         self._agents: dict[bool, Agent] = {}
 
     def _model_for(self) -> Model | str:
@@ -352,11 +251,7 @@ class PydanticAgentRuntime:
         return self._built
 
     def _agent_for(self, client_mode: bool) -> Agent:
-        """Two agents at most: the instructions differ by mode, nothing else.
-
-        Safe to share across requests because everything request-specific --
-        the repo, the token, the collected results -- travels in Deps.
-        """
+        """Two agents at most: the instructions differ by mode, nothing else."""
         if client_mode not in self._agents:
             self._agents[client_mode] = build_agent(
                 self._model_for(), client_mode=client_mode, max_tokens=self._max_tokens
@@ -373,20 +268,10 @@ class PydanticAgentRuntime:
         repo: ProjectRepo,
         history: list[Turn] | None = None,
     ) -> AsyncIterator[dict[str, Any]]:
-        """Answer one question, emitting events as they happen.
-
-        Text is streamed so the realtor sees work happening rather than a frozen
-        screen. The project cards are emitted at the end from the TOOL results,
-        never parsed back out of the model's prose.
-        """
+        """Answer one question, emitting events as they happen."""
         deps = Deps(repo=repo, auth=auth)
         agent = self._agent_for(mode is ChatMode.CLIENT)
 
-        # A queue, not a list drained inside the text loop. stream_text yields
-        # nothing until the model has finished calling tools, so a list would
-        # hold "searching Brampton..." until after the search had finished --
-        # exactly the seconds the message exists to fill. Producing into a queue
-        # and consuming it here lets each event leave as it happens.
         queue: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue()
 
         async def on_event(ctx, stream) -> None:
@@ -417,9 +302,6 @@ class PydanticAgentRuntime:
                     async for chunk in result.stream_text(delta=True):
                         if chunk:
                             queue.put_nowait({"type": "text", "text": chunk})
-                # Inside the guard: serialising the cards can fail too, and a
-                # stream that ends after the text with no `done` leaves a
-                # conforming client waiting under a finished answer.
                 usage = result.usage
                 queue.put_nowait(
                     {"type": "projects", "projects": [_for_client(p) for p in deps.collected]}
@@ -435,8 +317,6 @@ class PydanticAgentRuntime:
                     }
                 )
             except Exception as exc:
-                # The realtor gets a recoverable message, not a stack trace and
-                # not a half-answer that reads like a complete one (AUR-45).
                 queue.put_nowait({"type": "error", "detail": f"{type(exc).__name__}: {exc}"})
             finally:
                 queue.put_nowait(None)
@@ -449,18 +329,11 @@ class PydanticAgentRuntime:
                     break
                 yield event
         finally:
-            # A client that closes the tab mid-answer stops consuming, and the
-            # run would otherwise keep going -- and keep billing -- with nobody
-            # listening.
             if not task.done():
                 task.cancel()
             with suppress(asyncio.CancelledError):
                 await task
 
     async def healthy(self) -> bool:
-        """Configuration only, deliberately.
-
-        A real completion would be the stronger check and would also spend money
-        on every uptime probe. Reachability is what /doctor is for.
-        """
+        """Configuration only, deliberately."""
         return bool(self._api_key or self._model is not None)

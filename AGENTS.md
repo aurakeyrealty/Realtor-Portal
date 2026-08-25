@@ -183,11 +183,14 @@ if you touch it:
 | [how-it-works.md](docs/aura-chat/how-it-works.md) | **Start here.** The whole system end to end: boot, every file, one chat interaction traced |
 | [the-agent.md](docs/aura-chat/the-agent.md) | The agent layer alone, slowly: startup, PydanticAI, tool registration, the loop, the queue |
 | [invariants.md](docs/aura-chat/invariants.md) | The eight rules that break security or cost an afternoon |
+| [api.md](docs/aura-chat/api.md) | Every endpoint, its auth and shape; every tool and what it reads |
+| [limitations.md](docs/aura-chat/limitations.md) | What Aura cannot answer or does not cover — the honest list |
 | [working-rules.md](docs/aura-chat/working-rules.md) | Working rules, Python conventions, definition of done |
 | [roadmap.md](docs/aura-chat/roadmap.md) | Phase status, and the names already chosen for unwritten files |
 | [architecture.md](docs/aura-chat/architecture.md) | The decision, the stack, the ports, the phased plan |
 | [investigation-aur-3-4-5.md](docs/aura-chat/investigation-aur-3-4-5.md) | The discovery it rests on |
-| [operations.md](docs/aura-chat/operations.md) | Getting a token, the full env var list, deploying, rotating `TOKEN_SECRET` |
+| [operations.md](docs/aura-chat/operations.md) | Getting a token, the env vars, running locally, deploying, restarting, **logs**, rotating `TOKEN_SECRET` |
+| [schema.md](docs/aura-chat/schema.md) | The three tables, isolation in SQL, backup and restore |
 | [worklog.md](docs/worklog.md) | **Why** each change was made — decisions, rejected options, costs of reversing |
 | [known-issues.md](docs/aura-chat/known-issues.md) | Defects found and understood but **not fixed** — symptom, root cause, how to reproduce, the fix I would write |
 | [sprint-tracker.html](docs/aura-chat/sprint-tracker.html) | The AUR-* sprint board. Reference only — nothing reads it |

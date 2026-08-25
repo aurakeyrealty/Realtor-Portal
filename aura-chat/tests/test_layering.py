@@ -87,3 +87,21 @@ def test_only_the_container_hands_out_a_project_repo():
         if f.name in allowed or "adapters" in f.parts:
             continue
         assert ".projects." not in f.read_text(), f"{f.relative_to(APP)} uses the raw repo"
+
+
+def test_the_history_window_is_the_same_number_everywhere():
+    """Three copies of 20: the domain's MAX_HISTORY_TURNS, the adapter's
+    MAX_HISTORY, and the port's default. The adapter keeps its own so it need
+    not import domain for one integer -- which is only safe if they cannot
+    drift. A smaller adapter window would silently starve the model of context
+    the domain believes it is sending."""
+    import re
+
+    from app.domain import MAX_HISTORY_TURNS
+
+    adapter = (APP / "adapters" / "store_postgres.py").read_text()
+    assert f"MAX_HISTORY = {MAX_HISTORY_TURNS}" in adapter
+
+    port = (APP / "ports" / "conversations.py").read_text()
+    limits = set(re.findall(r"limit: int = (\d+)\s*\n?\s*\) -> list\[dict\]: \.\.\.", port))
+    assert str(MAX_HISTORY_TURNS) in limits, f"port history() default is {limits}"

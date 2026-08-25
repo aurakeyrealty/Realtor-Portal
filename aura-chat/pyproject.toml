@@ -10,6 +10,7 @@ dependencies = [
   "pydantic>=2.9",
   "pydantic-settings>=2.6",
   "pydantic-ai-slim[openai]>=2.33",
+  "asyncpg>=0.30",
 ]
 
 # Without this, `pip install .` has no backend to call -- and Railway's builder

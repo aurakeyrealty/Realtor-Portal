@@ -305,7 +305,7 @@ function fakeSheet(rows, links) {
   };
   const sandbox = { out: null };
   createContext(sandbox);
-  runInContext(['esc', 'isUrl', 'safeUrl', 'linkBtn', 'money', 'projectCard'].map(grab).join('\n'), sandbox);
+  runInContext(['esc', 'isUrl', 'safeUrl', 'linkBtn', 'money', 'pct', 'clip', 'projectCard'].map(grab).join('\n'), sandbox);
 
   // The two renderers as they stood before the extraction, character for character.
   runInContext(`
@@ -328,6 +328,42 @@ function fakeSheet(rows, links) {
      sandbox.out.length
        ? `projectCard() output drifted from the screens it replaced: ${sandbox.out.join(', ')}`
        : 'projectCard() renders home and city byte-for-byte as the inline versions did');
+
+  // ---- 10b. the AUR-46 fields ----
+  // They arrive on every payload, so the only thing keeping them off home and
+  // city is that the options default off. Worth testing rather than trusting.
+  const CHAT = { price: true, deposit: true, incentive: true };
+  runInContext(`
+    var P={name:'DUO',city:'Brampton',starting_price:370990,depositpct:10,
+           depositsched:'$10k on signing, balance to 10% in 180 days',
+           incentives:'Free assignment + $10k credit'};
+    out={
+      chat: projectCard(P, ${JSON.stringify(CHAT)}),
+      bare: projectCard(P, {}),
+      home: projectCard(P, {focus:true,project:true}),
+      city: projectCard(P, {bits:['status']}),
+      numPct: pct(10), floatPct: pct(10.5), textPct: pct('10%'), barePct: pct('10'),
+      prose: pct('$50k then 5% at closing'), emptyPct: pct(null),
+      schedOnly: projectCard({name:'X',depositsched:'$50k on signing'}, {deposit:true}),
+      longInc: projectCard({name:'X',incentives:'i'.repeat(400)}, {incentive:true}),
+      xss: projectCard({name:'X',incentives:'<img src=x onerror=alert(1)>'}, {incentive:true})
+    };
+  `, sandbox);
+  const r = sandbox.out;
+  ok(/10% deposit/.test(r.chat), 'a chat card shows the deposit percentage');
+  ok(/Free assignment/.test(r.chat), 'a chat card shows the incentive');
+  ok(!/deposit|Free assignment/.test(r.home) && !/deposit|Free assignment/.test(r.city),
+     'home and city show neither -- the options default off');
+  ok(!/deposit|Free assignment/.test(r.bare), 'no options means no new lines at all');
+  ok(r.numPct === '10%' && r.floatPct === '10.5%' && r.textPct === '10%' && r.barePct === '10%',
+     'pct() formats a number and normalises sheet text to the same thing');
+  ok(r.prose === '$50k then 5% at closing',
+     'pct() passes a real schedule through rather than inventing a percentage from it');
+  ok(r.emptyPct === '', 'pct() of nothing is nothing, not "0%"');
+  ok(/\$50k on signing/.test(r.schedOnly),
+     'a schedule with no percentage still shows -- it says something on its own');
+  ok(r.longInc.length < 400 && /…/.test(r.longInc), 'a long incentive is clipped, not wrapped over four lines');
+  ok(!/<img/.test(r.xss) && /&lt;img/.test(r.xss), 'a sheet cell cannot inject markup through the incentive line');
 }
 
 // ---- 11. the markdown renderer ----
@@ -454,6 +490,218 @@ function fakeSheet(rows, links) {
 
   r = await run([enc(': keepalive\n\n' + 'data: not json\n\n' + DONE)]);
   ok(r.ended === true && r.seen.join(',') === 'done', 'comments and unparseable lines are skipped, not fatal');
+}
+
+
+// ---- 12. the feedback row (AUR-59, AUR-60) ----
+// The only place in the chat that POSTs anything but a question, and the only
+// one gated on the mode.
+{
+  const script = readFileSync(DIR + 'Script.html', 'utf8');
+  const grab = (name) => {
+    const at = script.indexOf('function ' + name + '(');
+    if (at === -1) throw new Error('verify: ' + name + '() not found in Script.html');
+    let i = script.indexOf('{', at), depth = 0;
+    for (let j = i; j < script.length; j++) {
+      if (script[j] === '{') depth++;
+      else if (script[j] === '}' && --depth === 0) return script.slice(at, j + 1);
+    }
+    throw new Error('verify: ' + name + '() is unbalanced');
+  };
+
+  const row = grab('auraFeedbackRow');
+  const pyAll = readFileSync(DIR + 'aura-chat/app/domain/feedback.py', 'utf8');
+  ok(/AURA_MODE==='client'/.test(row) && /return null/.test(row),
+     'the feedback row is not rendered in Client Mode');
+  ok(/!turn\.id/.test(row),
+     'an answer with no id gets no row -- a vote that cannot be attributed is not offered');
+  // Written inside the .then, so a failed POST cannot leave a reopened chat
+  // claiming the report was sent.
+  const persistAt = row.indexOf('turn.fb=verdict');
+  const thenAt = row.indexOf('.then(function(){');
+  ok(persistAt > thenAt && thenAt !== -1,
+     'the verdict is persisted only after the POST resolves, never before');
+  ok(/fb-fail/.test(row) && /Try again/.test(row),
+     'a feedback POST that fails says so and offers a retry');
+
+  // A data issue is a claim about the SHEET, a thumb about the ANSWER.
+  const sheetBody = row.slice(row.indexOf('function sheet(verdict)'), row.indexOf('function buttons()'));
+  ok(/function sheet\(verdict\)/.test(row),
+     'the category sheet knows which button opened it');
+  ok(!/send\('down'/.test(sheetBody),
+     'the sheet files the verdict it was opened with, never a hardcoded thumbs-down');
+  ok(/rep\.addEventListener\('click',function\(\)\{ sheet\(null\); \}\)/.test(row),
+     '"Report data issue" opens the sheet with no verdict attached');
+  ok(/sheet\('down'\)/.test(row), 'the thumbs-down carries its vote into the sheet');
+
+  // The only free text a realtor can send.
+  ok(/if\(verdict\) send\(verdict,null,note\.value\); else buttons\(\);/.test(row),
+     'Skip carries the note, and with no vote to file it cancels instead');
+  ok(/go\.disabled=!chosen&&!note\.value\.trim\(\)/.test(row),
+     'a note with no category still enables Send, so nothing typed is orphaned');
+
+  ok(/verdict is None and self\.category is None and not self\.note\.strip\(\)/.test(pyAll),
+     'the server refuses a report carrying neither verdict, category nor note');
+  // max_length on a list bounds the count, not the items: twelve 200kB ids was
+  // a valid body, and a 2.3MB log line.
+  ok(/ProjectId = Annotated\[str, StringConstraints\(max_length=MAX_ID_LEN\)\]/.test(pyAll)
+     && /project_ids: list\[ProjectId\]/.test(pyAll),
+     'each project id is length-capped, not just the number of them');
+
+  // The answer text is the thing this endpoint was shaped to not carry.
+  const post = row.slice(row.indexOf('auraPostFeedback({'), row.indexOf('}).then'));
+  ok(!/content|answer:|text/.test(post),
+     'the feedback payload carries no answer text -- only the question and the verdict');
+  // Read out of the Python, not hardcoded: grepping for the literals while
+  // claiming server parity meant a tightened MAX_QUESTION stayed green.
+  const pyCap = (name) => {
+    const m = pyAll.match(new RegExp('^' + name + ' = (\\d+)$', 'm'));
+    if (!m) throw new Error('verify: ' + name + ' not found in feedback.py');
+    return m[1];
+  };
+  const qCap = pyCap('MAX_QUESTION'), nCap = pyCap('MAX_NOTE');
+  ok(/answer_id:turn\.id/.test(post), 'the payload keys the report to the answer');
+  ok(post.includes('question:clip(question,' + qCap + ')')
+     && post.includes('note:clip(note,' + nCap + ')'),
+     `the client clips to the server's own caps (question ${qCap}, note ${nCap})`);
+
+  // The categories must match app/domain/feedback.py, or a report files itself
+  // under a category the queue has no column for.
+  const py = pyAll;
+  // Scoped to IssueCategory: Verdict is the same shape one class up.
+  const cats = py.slice(py.indexOf('class IssueCategory'), py.indexOf('class Feedback'));
+  const server = [...cats.matchAll(/^\s{4}[A-Z_]+ = "([a-z_]+)"$/gm)].map((m) => m[1]);
+  // Scoped to AURA_ISSUES: other [key,label] pairs share the shape, and one of
+  // them is also called 'other'.
+  const issuesAt = script.indexOf('var AURA_ISSUES=[');
+  const issues = script.slice(issuesAt, script.indexOf('];', issuesAt));
+  const client = [...issues.matchAll(/\['([a-z_]+)','[^']+'\]/g)].map((m) => m[1]);
+  ok(server.length === 7, `the server declares exactly the 7 AUR-60 categories (got ${server.length})`);
+  ok(server.every((v) => client.includes(v)) && client.length === 7,
+     'every server category has a label in AURA_ISSUES and none is invented');
+
+  // The row is built with DOM nodes; a sheet value or a realtor's note reaching
+  // innerHTML would be the one injection point the rest of the chat avoids.
+  ok(!/innerHTML\s*=\s*[^;]*(?:question|note|content)/.test(row),
+     'no user or model text is interpolated into HTML in the feedback row');
+  ok(/textContent/.test(row) && /createElement/.test(row),
+     'the feedback row is built from nodes, not from an HTML string');
+
+  const posted = grab('auraPostFeedback');
+  ok(/'Authorization':'Bearer '\+TOKEN/.test(posted), 'feedback is sent authenticated');
+  ok(/\/feedback/.test(posted), 'feedback goes to /feedback');
+
+  // History is what the realtor pays tokens for. The stored turns now carry
+  // three fields the model has no use for.
+  const ask = grab('auraAsk');
+  ok(/return \{role:t\.role,content:t\.content\}/.test(ask),
+     'chat history is trimmed to role and content -- ids and verdicts do not go to the model');
+
+  // Phase 4a. Once the server owns the thread the client must stop asserting
+  // what was said -- otherwise it is shipping tokens the realtor pays for and a
+  // claim it is not entitled to make.
+  ok(/var history=AURA_CID\?\[\]:/.test(ask),
+     'history is sent only until the server owns the conversation');
+  ok(/conversation_id:AURA_CID/.test(ask), 'the conversation id is sent with every question');
+  ok(/AURA_CID=ev\.conversation_id/.test(ask),
+     'a new chat learns its id from the start event, not a second request');
+  const mode2 = grab('auraMode'), fresh = grab('auraNewChat');
+  ok(/AURA_CID=null/.test(mode2) && /AURA_CID=null/.test(fresh),
+     'New Chat and a mode flip both start a different conversation, not the same one');
+  ok(/c:AURA_CID/.test(grab('auraSave')) && /AURA_CID=o\.c/.test(grab('auraLoad')),
+     'the conversation id survives closing the app');
+
+  // A stale id used to be unclearable: only assigning when truthy meant a
+  // refused id survived, and every later question shipped it with an empty
+  // history -- nothing stored, no context, silently, forever.
+  ok(/AURA_CID=ev\.conversation_id\|\|null/.test(ask),
+     'the conversation id can go back to null, so a refused one is not permanent');
+  ok(/AURA_CID=null/.test(grab('forgetData')),
+     'signing out drops the conversation id with the rest of the thread');
+
+  // The rate limit (AUR-21) answers 429. Without its own branch that falls into
+  // the generic throw below it and reads "Could not reach Aura." -- the one
+  // thing that is certainly untrue, because we reached it and it replied.
+  ok(/r\.status===429/.test(ask) && ask.indexOf('r.status===429') < ask.indexOf("throw new Error('HTTP '"),
+     'a rate-limited answer is named before the generic HTTP failure');
+  ok(/Retry-After/.test(ask),
+     'the wait the server asked for is what the realtor is told');
+
+  // ---- the chats panel (AUR-38, AUR-50) ----
+  const wire = script.slice(script.indexOf('function auraWire()'));
+  ok(/\$\('auraNew'\)\.addEventListener\('click',auraHistOpen\)/.test(wire),
+     'the header button opens the chats panel');
+  ok(/\$\('auraHistNew'\)\.addEventListener\('click',auraNewChat\)/.test(wire),
+     'New Chat lives inside the panel, so the header keeps four controls');
+  ok(/auraHistClose/.test(grab('auraNewChat')) && /auraHistClose/.test(grab('auraMode')),
+     'anything that replaces the thread closes the panel over it');
+
+  const open = grab('auraOpenThread');
+  // The stored mode has to land before a turn is painted: a Client thread that
+  // comes back blue and switches a moment later defeats the header.
+  ok(open.indexOf('AURA_MODE=') !== -1
+     && open.indexOf('AURA_MODE=') < open.indexOf('auraPaint()'),
+     'a reopened thread applies its stored mode before it paints');
+  ok(/auraStop\(\)/.test(open),
+     'opening another thread aborts the one still streaming');
+  // auraFeedbackRow returns null without an id, so an id-less turn silently
+  // loses its thumbs on reopen.
+  ok(/id:m\.id/.test(open), 'reopened answers keep their message id, so feedback still works');
+  ok(/m\.sources/.test(open), 'and the projects they cited, so a report still names them');
+  ok(!/auraCards/.test(open),
+     'reopened answers do not rebuild cards -- shared id slugs would show the wrong project');
+
+  const hist = grab('auraHistPaint');
+  ok(/createElement/.test(hist) && !/innerHTML/.test(hist),
+     'chat titles are set as text, never interpolated into HTML');
+  ok(/r\.status===503/.test(grab('auraHistLoad')),
+     'a store that is down reads as unavailable, not as a generic failure');
+
+  // ---- the reports queue (AUR-62) ----
+  ok(/!n\.admin\|\|AURA_ADMIN/.test(grab('buildNav')),
+     'the reports row is drawn only for an admin');
+  const who = grab('auraWhoAmI');
+  ok(/'\/me'/.test(who) && /d\.admin/.test(who),
+     'admin comes from the service, not from anything the client stored at login');
+  ok(!/localStorage|sessionStorage/.test(who),
+     'and it is never persisted -- a stored role is a role somebody can edit');
+  const rep = grab('loadReports');
+  // 403 is authorization. Signing the team out over one is the mistake
+  // isAuthErr() was written to avoid.
+  // The CODE line, not the first line mentioning 403 -- which is the comment
+  // above it, and matching that made this check pass for any implementation.
+  const on403 = rep.split('\n').filter(l => l.includes('r.status===403')).join(' ');
+  ok(/r\.status===401/.test(rep) && on403 && !/sessionLost/.test(on403),
+     'a 403 on the reports screen does not end the session');
+  ok(/esc\(/.test(grab('reportCard')),
+     'realtor-written notes and questions are escaped into the report card');
+  ok(/AURA_ADMIN=false/.test(script.slice(script.indexOf('function signOut'), script.indexOf('function signOut') + 600))
+     || /AURA_ADMIN=false/.test(grab('forgetData')),
+     'signing out drops the admin flag -- shared phones exist');
+  // The header is the whole Client Mode signal. Resetting the mode without
+  // repainting leaves it saying Client while the mode is realtor -- the next
+  // realtor on a shared phone turns the screen around believing it is safe.
+  const forget = grab('forgetData');
+  ok(/AURA_MODE='realtor'/.test(forget) && /auraPaintMode\(\)/.test(forget),
+     'forgetData repaints the header it just reset');
+
+  // Clearing AURA_TURNS does nothing to a request already in flight -- its
+  // `done` handler pushed a Realtor answer into the cleared Client thread.
+  const mode = grab('auraMode');
+  ok(/auraStop\(\)/.test(mode),
+     'flipping the mode aborts the stream -- a clear that leaves one running is not a clear');
+  ok(mode.indexOf('auraStop()') > -1 && mode.indexOf('auraStop()') < mode.indexOf('AURA_TURNS=[]'),
+     'the abort happens before the thread is cleared');
+
+  // A mis-tap posts a verdict and settles the row to "Thanks" with no undo.
+  const fbCss = readFileSync(DIR + 'Styles.html', 'utf8');
+  const fbBlock = fbCss.slice(fbCss.indexOf('.aura-fb{'), fbCss.indexOf('.aura-note{'));
+  ok(/\.aura-fb button\{[^}]*min-height:2\.75rem/.test(fbBlock),
+     'feedback buttons are 44px tall');
+  ok(/\.aura-fbv\{[^}]*min-width:2\.75rem/.test(fbBlock),
+     'the icon-only thumbs are 44px wide as well as tall');
+  ok(!/min-height:2\.25rem/.test(fbBlock),
+     'no 36px control survives in the feedback row');
 }
 
 console.log(fail ? `\n${fail} CHECK(S) FAILED` : '\nALL CHECKS PASSED');

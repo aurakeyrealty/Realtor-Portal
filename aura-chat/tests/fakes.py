@@ -89,31 +89,79 @@ class FakeProjectRepo:
 
 
 class FakeConversationStore:
+    """In memory, and it enforces the isolation rule rather than assuming it.
+    A test that passes here because the fake is permissive would ship a store
+    that leaks one realtor's conversations to another."""
+
     def __init__(self) -> None:
         self.rows: dict[str, list[dict]] = {}
         self.owner: dict[str, str] = {}
+        self.heads: dict[str, dict] = {}
+        self.feedback: list[dict] = []
+        self.up = True                       # flip to make every call raise
 
-    async def create(self, *, user: str, title: str) -> str:
+    def _live(self) -> None:
+        if not self.up:
+            raise RuntimeError("connection refused")
+
+    async def create(self, *, user: str, title: str, mode: str = "realtor") -> str:
+        self._live()
         cid = f"c{len(self.rows) + 1}"
         self.rows[cid] = []
         self.owner[cid] = user
+        self.heads[cid] = {"id": cid, "title": title, "mode": mode, "updated_at": f"t{len(self.rows)}"}
         return cid
 
-    async def append(self, *, conversation_id, role, message, sources=None) -> None:
-        self.rows.setdefault(conversation_id, []).append(
-            {"role": role, "message": message, "sources": sources or []}
+    async def append(self, *, conversation_id, role, message, sources=None) -> str:
+        self._live()
+        mid = f"m{len(self.rows.setdefault(conversation_id, [])) + 1}"
+        self.rows[conversation_id].append(
+            # id and created_at because the real one returns them: a reopened
+            # answer with no id gets no feedback buttons, and a fake that hides
+            # that would let the omission ship.
+            {
+                "id": mid,
+                "role": role,
+                "message": message,
+                "sources": sources or [],
+                "created_at": f"t{len(self.rows[conversation_id])}",
+            }
         )
+        return mid
 
-    async def history(self, *, conversation_id: str, user: str) -> list[dict]:
+    async def history(self, *, conversation_id: str, user: str, limit: int = 20) -> list[dict]:
+        self._live()
         if self.owner.get(conversation_id) != user:
             return []
-        return self.rows.get(conversation_id, [])
+        # Windowed like the real one. A fake that returns everything would let a
+        # missing LIMIT in the SQL pass every test.
+        return self.rows.get(conversation_id, [])[-max(1, limit):]
 
     async def list_for(self, *, user: str, limit: int = 30) -> list[dict]:
-        return [{"id": c} for c, u in self.owner.items() if u == user][:limit]
+        self._live()
+        return [self.heads[c] for c, u in self.owner.items() if u == user][:limit]
+
+    async def meta(self, *, conversation_id: str, user: str) -> dict | None:
+        self._live()
+        if self.owner.get(conversation_id) != user:
+            return None
+        return self.heads.get(conversation_id)
+
+    async def set_mode(self, *, conversation_id: str, user: str, mode: str) -> None:
+        self._live()
+        if self.owner.get(conversation_id) == user:
+            self.heads[conversation_id]["mode"] = mode
+
+    async def record_feedback(self, *, user: str, entry: dict) -> None:
+        self._live()
+        self.feedback.append({**entry, "user_id": user})
+
+    async def list_feedback(self, *, limit: int = 100) -> list[dict]:
+        self._live()
+        return self.feedback[-limit:]
 
     async def healthy(self) -> bool:
-        return True
+        return self.up
 
 
 class FakeDocumentIndex:
