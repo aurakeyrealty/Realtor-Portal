@@ -6,7 +6,7 @@ adapter layer ever learns a tab name, a row number or a column header.
 
 from datetime import date
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 # Every field that is hidden from somebody. What is hidden from WHOM lives in
 # viewer.py; this set exists so a redaction can be checked for completeness --
@@ -110,6 +110,17 @@ class ProjectFilters(BaseModel):
     city: str = ""
     builder: str = ""
     categories: list[str] = Field(default_factory=list)
+
+    @field_validator("categories", mode="after")
+    @classmethod
+    def _fold_categories(cls, v: list[str]) -> list[str]:
+        """Categories are compared as an exact set, so casing decides the answer.
+
+        The portal emits them lowercase (catsFromType_ in Core.js) and the model
+        supplies whatever it likes -- it currently sends "Townhome". Folded here
+        rather than in `matches` so a future SQL adapter gets it too.
+        """
+        return [c.strip().lower() for c in v if c and c.strip()]
     min_price: int | None = None
     max_price: int | None = None
     min_bedrooms: int | None = None

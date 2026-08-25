@@ -19,7 +19,7 @@ def matches(p: Project, f: ProjectFilters) -> bool:
         return False
     if f.builder and f.builder.lower() not in p.builder.lower():
         return False
-    if f.categories and not set(f.categories) & set(p.categories):
+    if f.categories and not set(f.categories) & {c.lower() for c in p.categories}:
         return False
     if f.status and f.status.lower() not in p.status.lower():
         return False

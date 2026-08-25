@@ -113,6 +113,47 @@ believing the safe mode was on, with commission still reaching it. Pre-existing,
 not introduced here, and found by reloading the page during the mode work rather
 than by reading the code. One line, plus the check that fails without it.
 
+### The benchmark fell to 39/50, and the cause was casing
+
+**A category only matched if the model happened to send it lowercase.** The
+portal emits `townhome` / `detached` / `semi` / `condo` in lowercase and always
+has -- `catsFromType_` in Core.js lowercases before it buckets. `matches()`
+compared with an exact set intersection, so the day the model started sending
+`"Townhome"` every type-filtered search returned nothing and Aura said it could
+not confirm any townhomes in a city holding twenty-one projects. Five probes in
+a row sent the capital T, so this was not a flake to wait out.
+
+Folded at the `ProjectFilters` boundary rather than inside `matches`, so a future
+SQL adapter inherits it; `matches` lowercases the project side too. Note the
+neighbouring lines already normalised `city.upper()`, `builder.lower()`,
+`status.lower()` -- categories were the one field that did not, which is why it
+read as correct for so long.
+
+Nothing in the tool schema constrains that argument and nothing in the prompt
+asks for lowercase, so the old behaviour was never a contract -- it was a coin
+that had been landing the same way. 39/50 -> 43/50 with the fix.
+
+### Deploying stopped depending on remembering a flag
+
+`railway up` uploads the git repository root, not the working directory, so a
+plain deploy shipped the Apps Script portal and Railpack found no Python app.
+DEPLOY.md had documented the `--path-as-root` workaround; it was forgotten
+twice, which is the definition of a workaround that does not work.
+
+The service's Root Directory is now `/aura-chat`, `railway.json` pins the
+builder and start command, and `scripts/deploy.sh` is the one command. The two
+cannot be combined -- with Root Directory set, the flag makes Railway look for
+`aura-chat/aura-chat` -- so DEPLOY.md now says so in the imperative.
+
+`rootDirectory` cannot live in `railway.json`, because Railway reads that file
+*from* the root directory. It is a service setting; the runbook records how to
+check it.
+
+**The deploy script verifies the build is actually serving.** A dashboard
+Redeploy re-runs the *previous image* and reports success, which is how an hour
+went into diagnosing a "deployed" service that was still running the old code.
+The script fails if the response carries no `X-Request-Id`.
+
 ### Five from the review of this change, all reproduced before being fixed
 
 **The CSV export wrote realtor text as live spreadsheet formulas.** A note of

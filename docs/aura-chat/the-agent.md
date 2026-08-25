@@ -16,15 +16,17 @@ other docs.
 `uvicorn app.main:app` runs [main.py](../../aura-chat/app/main.py). Two things
 happen, in this order.
 
-**First, the app is constructed.** `create_app()` reads settings, registers CORS
-middleware, and mounts two routers — `/health`, `/doctor`, `/me`, `/login` from
-[api.py](../../aura-chat/app/api.py), and `/chat` from
-[chat.py](../../aura-chat/app/chat.py). No adapters yet. CORS has to be
-registered while the app object is being built, which is why settings are read
+**First, the app is constructed.** `create_app()` reads settings, configures the
+`aura.*` loggers, registers CORS and a middleware that stamps a request id,
+builds the rate-limit windows onto `app.state.limits`, and mounts the routers:
+`/health`, `/doctor`, `/me`, `/login` from
+[api.py](../../aura-chat/app/api.py), `/chat` from
+[chat.py](../../aura-chat/app/chat.py), plus conversations and feedback. No
+adapters yet. CORS has to be registered while the app object is being built, which is why settings are read
 here as well as inside the container.
 
 **Then, on startup, the container is built.** The `lifespan` hook calls
-`container.build()` ([container.py:47](../../aura-chat/app/container.py#L47)),
+`container.build()` ([container.py:39](../../aura-chat/app/container.py#L39)),
 the one and only file in the service allowed to construct an adapter:
 
 ```mermaid
@@ -33,9 +35,11 @@ flowchart TD
     S --> A["PortalHmacAuthVerifier<br/>holds TOKEN_SECRET"]
     S --> R["ExecApiProjectRepo<br/>wraps the PortalClient, owns the 5-min cache"]
     S --> RT["PydanticAgentRuntime<br/>api key + model name + max_tokens"]
+    S --> ST["PostgresConversationStore<br/>only when DATABASE_URL is set"]
     P --> A
     P --> R
-    S --> C[["Container<br/>settings · portal · auth · projects · runtime"]]
+    ST --> C
+    S --> C[["Container<br/>settings · portal · auth · projects · runtime · store"]]
 ```
 
 Note what is **not** built at startup:
@@ -47,7 +51,7 @@ Note what is **not** built at startup:
 
 The container lives on `app.state.container` for the life of the process. Every
 request reaches it through the `container(request)` dependency
-([api.py:13](../../aura-chat/app/api.py#L13)).
+([api.py:16](../../aura-chat/app/api.py#L16)).
 
 **Why lazy?** A provider owns an `AsyncOpenAI` client with a connection pool, and
 nothing in this service closes one. Building an agent per request would leave a
@@ -84,7 +88,12 @@ sequenceDiagram
     CH->>RT: stream(question, claims, auth, mode, repo, history)
 ```
 
-Four things are settled here, before the model is involved at all:
+Five things are settled here, before the model is involved at all:
+
+**A ceiling is checked first.** `limits.check(request, "chat", claims.user)`
+([limits.py:86](../../aura-chat/app/limits.py#L86)) is a sliding window per
+caller, in memory per process. Over the ceiling is a 429 with `Retry-After`, and
+nothing further runs.
 
 **Identity is proven, not claimed.** The bearer token is the portal's own HMAC
 session token. `current_claims` verifies the signature with `TOKEN_SECRET` and
@@ -102,9 +111,16 @@ after that nothing downstream takes the client's word for anything.
 only object the agent will ever be handed. There is no path from a tool back to
 the unredacted repo.
 
-**The stream opens immediately** with a `start` event echoing the mode, so the
-UI can prove which mode it is in before any content arrives. A realtor must
-never wonder whether the screen they just turned around is safe.
+**The conversation is resolved.** `_resolve()` finds the caller's conversation
+or creates one; `_history()` prefers the stored turns and falls back to the
+client's. The question is appended before the answer starts, so a run that dies
+mid-answer still leaves the question on the record. Every store call is wrapped:
+a database that is down degrades the chat to stateless rather than failing it.
+
+**The stream opens immediately** with a `start` event carrying the mode and the
+conversation id, so the UI can prove which mode it is in before any content
+arrives. A realtor must never wonder whether the screen they just turned around
+is safe.
 
 Everything that can fail happens *inside* the generator, so a failure arrives as
 an `error` event in the stream the caller is already reading — not as a 500 with
@@ -112,7 +128,47 @@ an HTML body under a `text/event-stream` request.
 
 ---
 
-## 3. What PydanticAI is, and which parts we use
+## 3. The call chain, method by method
+
+Every function one question passes through, in order. Useful when you are
+staring at a file and want to know where in the cycle you are.
+
+| # | Where | What it does |
+|---|---|---|
+| 1 | `main.request_id` middleware | stamps a short id on `request.state`, echoes `X-Request-Id` |
+| 2 | `api.current_claims` | bearer token → verified `Claims`, or 401 |
+| 3 | `chat.chat` | the route handler. Rate limit, container, `Viewer`, then returns a `StreamingResponse` — the body has not run yet |
+| 4 | `chat.events` | the async generator. **Everything below happens as the client reads** |
+| 5 | `container.projects_for` | `Viewer` → `RedactingProjectRepo` |
+| 6 | `chat._resolve` | find or create the conversation |
+| 7 | `chat._history` | stored turns, or the client's |
+| 8 | `store.append` | the question, before the answer exists |
+| 9 | `chat._sse` | every event → `data: {...}\n\n` |
+| 10 | `PydanticAgentRuntime.stream` | builds `Deps`, picks the agent, creates the queue |
+| 11 | `_agent_for` → `build_agent` | first question of that mode only; cached after |
+| 12 | `_as_messages` | our `Turn`s → framework messages, text only |
+| 13 | `agent.run_stream` | **the loop.** PydanticAI owns this |
+| 14 | `on_event` | fires during the loop → `tool` / `tool_result` onto the queue |
+| 15 | `@agent.tool` wrappers | unpack `ctx.deps`, call `tools.*`, `_keep()` the results |
+| 16 | `_keep` | drop Projects in the basket, return `_for_model` dicts |
+| 17 | `result.stream_text` | prose deltas → `text` onto the queue |
+| 18 | `_for_client` | the basket → card-shaped dicts → `projects` |
+| 19 | `store.append` | the answer and its sources, in a `finally` |
+| 20 | `chat._audit` | one line per question: who, which tools, tokens, ms |
+
+Read it as three bands. **1–3** are synchronous and fast — they end with a
+response object handed back to FastAPI. **4–19** run lazily, once per chunk the
+client pulls. **20** runs in a `finally`, so it fires whether the answer
+succeeded, errored, or the realtor closed the tab.
+
+The one worth internalising is **3 vs 4**. `chat()` returns almost immediately;
+nothing inside `events()` has executed. That is why every failure that could
+happen is written to happen *inside* the generator — outside it, a raised
+exception becomes a 500 with an HTML body under a `text/event-stream` request.
+
+---
+
+## 4. What PydanticAI is, and which parts we use
 
 PydanticAI is an agent framework: it owns the conversation with the model,
 turns Python functions into tools the model can call, runs the call-and-reply
@@ -137,7 +193,7 @@ What the library gives us, and what we actually use:
 | `UsageLimits` | Caps model round trips per run | Yes — 6 |
 | Output validators / result types | Force the final answer into a Pydantic model | **No** — the answer is prose |
 | Built-in retries | Re-ask the model when a tool call fails validation | Yes, `retries=1` |
-| Its own message history store | Persist conversations | **No** — history arrives in the request |
+| Its own message history store | Persist conversations | **No** — we own that, in Postgres |
 
 Two deliberate omissions worth naming. We do not use a structured output type,
 because the answer is prose for a human and the *numbers* travel separately as
@@ -146,10 +202,10 @@ conversations in our own database.
 
 ---
 
-## 4. How an agent is built, and how a tool gets registered
+## 5. How an agent is built, and how a tool gets registered
 
 `build_agent()`
-([agent_pydantic.py:133](../../aura-chat/app/adapters/agent_pydantic.py#L137))
+([agent_pydantic.py:97](../../aura-chat/app/adapters/agent_pydantic.py#L97))
 is called at most twice in the life of the process — once for Realtor Mode,
 once for Client Mode:
 
@@ -234,10 +290,10 @@ and telling a realtor the brokerage has 12 projects — is not.
 
 ---
 
-## 5. Per request: the `Deps` bag and the basket
+## 6. Per request: the `Deps` bag and the basket
 
 Back in `stream()`
-([agent_pydantic.py:349](../../aura-chat/app/adapters/agent_pydantic.py#L349)),
+([agent_pydantic.py:261](../../aura-chat/app/adapters/agent_pydantic.py#L261)),
 two lines set up the run:
 
 ```python
@@ -258,7 +314,7 @@ agent = self._agent_for(mode is ChatMode.CLIENT)
 `collected` is a plain Python list that starts empty and accumulates the real
 `Project` objects that tools returned during this run. Every tool passes its
 results through `_keep()`
-([agent_pydantic.py:142](../../aura-chat/app/adapters/agent_pydantic.py#L146))
+([agent_pydantic.py:106](../../aura-chat/app/adapters/agent_pydantic.py#L106))
 before returning them, and `_keep` does two things: append anything whose `id`
 is not already in the basket, and hand back the model-shaped dicts.
 
@@ -288,8 +344,9 @@ basket is born when the question arrives and dies when the answer finishes.
 Turn 4 starts empty. Turn 1's projects have nowhere to survive, so they cannot
 reappear as cards under an unrelated answer.
 
-What does carry across turns is `history`, and `_as_messages()` copies **text
-only** — never old tool results. A price the sheet has since changed would
+What does carry across turns is `history` — now read from the conversation store
+when there is one, and from the request body when there is not. Either way
+`_as_messages()` copies **text only**, never old tool results. A price the sheet has since changed would
 otherwise come back into the prompt with no way for the model to know it was
 stale.
 
@@ -310,7 +367,7 @@ work, and the four cards are current as of turn 3 rather than as of turn 1.
 
 ---
 
-## 6. The queue: ours, and why it has to exist
+## 7. The queue: ours, and why it has to exist
 
 ```python
 queue: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue()
@@ -362,7 +419,7 @@ nobody listening.
 
 ---
 
-## 7. The loop, with a real question
+## 8. The loop, with a real question
 
 > **"how many projects do we have in Brampton, and show me the townhomes under
 > 900k"**
@@ -459,7 +516,7 @@ call count and token usage. Then `None`, and the stream closes.
 
 ---
 
-## 8. Two shapes for a project, and why
+## 9. Two shapes for a project, and why
 
 The same `Project` leaves the process in two different shapes, and mixing them
 up breaks things quietly.
@@ -488,13 +545,13 @@ would show a buyer an internal designation.
 
 ---
 
-## 9. What reaches the UI
+## 10. What reaches the UI
 
 Seven event types, each a line of `data: {...}` in the SSE stream:
 
 | Event | When | What the UI does |
 |---|---|---|
-| `start` | immediately | shows which mode is active |
+| `start` | immediately | shows which mode is active; carries `conversation_id` |
 | `tool` | a tool is called | "searching Brampton…" |
 | `tool_result` | it returned | "└ returned 12" |
 | `text` | each prose chunk | appends to the bubble |
@@ -514,7 +571,7 @@ no streaming at all.
 
 ---
 
-## 10. Where the guardrails actually sit
+## 11. Where the guardrails actually sit
 
 The single most important thing to carry away from this document.
 

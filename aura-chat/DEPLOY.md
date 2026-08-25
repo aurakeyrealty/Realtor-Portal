@@ -5,35 +5,51 @@ Railway, project `aura-chat`, from `aura-chat/`.
 ## The one command
 
 ```bash
-railway up ./aura-chat --path-as-root --service aura-chat
+aura-chat/scripts/deploy.sh
 ```
 
-Run it **from the repo root**, and do not drop `--path-as-root`.
+It deploys from the repo root, waits for the deployment to settle, and then
+checks that the build now serving is the one you just pushed. That last step
+matters: a dashboard **Redeploy** re-runs the *previous image*, so it reports
+success while the old code keeps serving. The script fails loudly on that.
 
-## Why that flag is not optional
+## Why there is no flag any more
 
 `railway up` uploads from the **git repository root**, not the working
-directory. This service lives in a subdirectory of the portal's repo, so a plain
-`railway up` from inside `aura-chat/` ships the whole portal — `Core.js`,
-`App.html`, `netlify.toml` — and Railpack looks at that, finds no Python, and
-fails with *"could not determine how to build the app"*.
+directory. This service lives in a subdirectory of the portal's repo, so a
+plain `railway up` ships the whole portal — `Core.js`, `App.html`,
+`netlify.toml` — and Railpack looks at that, finds no Python, and fails with
+*"could not determine how to build the app."*
 
-The failure is easy to misread. The build produces no useful log through
-`railway logs --build` (two lines, both "scheduling build"), and
-`railway status` just says Failed. The real message is only visible in the
-dashboard's build log, or through the API:
+That used to be handled by remembering `--path-as-root`. It was forgotten
+twice, so it is now handled by configuration instead: the service's **Root
+Directory is set to `/aura-chat`**, and `railway.json` beside this file pins the
+builder and start command.
+
+**Do not pass `--path-as-root` or a path argument.** With Root Directory set,
+either one makes Railway look for `aura-chat/aura-chat`.
+
+`rootDirectory` cannot live in `railway.json`, because Railway reads that file
+*from* the root directory — it has to be set on the service. It is set; this
+note exists so nobody unsets it. To check or restore it:
+
+```bash
+railway api 'query($e:String!,$s:String!){serviceInstance(environmentId:$e,serviceId:$s){rootDirectory}}' \
+  --var e=<ENVIRONMENT_ID> --var s=<SERVICE_ID>
+```
+
+## When a deploy fails with no logs
+
+The build produces nothing useful through `railway logs --build` (two lines,
+both "scheduling build"), and `railway status` just says Failed. The real
+message is in the dashboard's build log, or through the API:
 
 ```bash
 railway api 'query($id:String!){ buildLogs(deploymentId:$id, limit:400){ message } }' --var id=<DEPLOYMENT_ID>
 ```
 
-`--path-as-root` makes `./aura-chat` the archive root, so Railpack sees
-`pyproject.toml`, `Procfile` and `.python-version` at the top level, which is
-what it needs.
-
-The alternative — setting the service's Root Directory to `/aura-chat` in the
-dashboard and deploying without the flag — also works, but **not both**: with
-Root Directory set, the flag would make Railway look for `aura-chat/aura-chat`.
+Zero `deploymentLogs` means the container never started, so the fault is in the
+build or the upload — not in the application.
 
 ## Python version
 

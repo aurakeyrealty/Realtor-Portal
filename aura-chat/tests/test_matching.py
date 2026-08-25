@@ -88,3 +88,23 @@ def test_unset_means_the_caller_did_not_ask():
     reason the check is `is True` / `is False` and not truthiness."""
     assert matches(p(is_focus=True), f())
     assert matches(p(is_focus=False), f())
+
+
+def test_a_category_matches_whatever_case_it_arrives_in():
+    """The portal emits lowercase (catsFromType_ in Core.js) and the model sends
+    whatever it likes -- currently "Townhome". An exact set intersection made
+    that silence: search_projects ran, matched nothing, and Aura said it could
+    not confirm any townhomes in a city that has twenty-one projects."""
+    from app.domain import ProjectFilters
+    from app.domain.matching import matches
+
+    town = p(categories=["townhome"])
+    for asked in ("townhome", "Townhome", "TOWNHOME", " Townhome "):
+        assert matches(town, ProjectFilters(categories=[asked])), asked
+    assert not matches(town, ProjectFilters(categories=["Condo"]))
+
+
+def test_blank_categories_are_dropped_rather_than_matching_nothing():
+    from app.domain import ProjectFilters
+
+    assert ProjectFilters(categories=["", "  ", "Townhome"]).categories == ["townhome"]
