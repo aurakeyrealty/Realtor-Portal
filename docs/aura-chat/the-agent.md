@@ -272,9 +272,41 @@ snapshot taken up front — two rows can briefly share a PROJECT ID while the
 column is being typed by hand, and the realtor would otherwise get the same card
 twice with no way to tell which is authoritative.
 
+A `Project`, by the way, is our own model of what the business means by a
+project — id, name, city, builder, price, deposit, occupancy, links. A sheet row
+becomes one in `ExecApiProjectRepo._to_project()`, and column names stop there.
+One `Project` is roughly one row, but nothing above that boundary knows it.
+
 Because everything request-specific lives in `Deps`, two realtors on one process
 cannot see each other's data: they share the `Agent`, but neither run's `Deps`
 ever touches the other's.
+
+### The basket lasts one question, not one conversation
+
+`Deps` is built inside `stream()`, and `stream()` runs once per question. So the
+basket is born when the question arrives and dies when the answer finishes.
+Turn 4 starts empty. Turn 1's projects have nowhere to survive, so they cannot
+reappear as cards under an unrelated answer.
+
+What does carry across turns is `history`, and `_as_messages()` copies **text
+only** — never old tool results. A price the sheet has since changed would
+otherwise come back into the prompt with no way for the model to know it was
+stale.
+
+```
+turn 1  "townhomes in Brampton"        -> basket: 12 projects -> 12 cards
+turn 2  "what's our commission policy" -> basket: empty       -> no cards
+turn 3  "only under 10% deposit"       -> searches again      -> 4 cards
+```
+
+Turn 3 is the one worth looking at. The realtor is refining, but the model holds
+only the *text* of turn 1, not its records — so it searches again. Slightly more
+work, and the four cards are current as of turn 3 rather than as of turn 1.
+
+> **Note.** Within a *single* turn the basket is flat: a compound question —
+> "show me Brampton townhomes, and what's new this week" — merges both tools'
+> results into one pile of cards, with nothing marking which question each
+> answered. The prose distinguishes them; the cards do not. Left as is for now.
 
 ---
 
