@@ -13,6 +13,284 @@ formatting.
 
 ---
 
+## 2026-08-25 — Code review: nine fixes, one of them a Client Mode leak
+
+**What.** A high-effort review of the whole chat changeset. Nine findings, all
+fixed. Three are worth recording; the rest were stale comments, a leaked global
+and a hardcoded package list.
+
+**`drive_url` had quietly become buyer-visible.** `_for_model` omitted every link
+column, so before this changeset no chat card carried a link at all. `_for_client`
+carries all three. `broker_url` and `status` are in `CLIENT_HIDDEN` and get blanked
+by `RedactingProjectRepo`; `drive_url` was on neither list, so it survived
+redaction and `projectCard` rendered a tappable "Drive" button on a screen a
+realtor had deliberately turned toward a buyer — straight into the brokerage's own
+Drive folder.
+
+Fixed by adding `drive_url` to `CONFIDENTIAL_FIELDS` **and** `CLIENT_HIDDEN`,
+rather than by dropping it from the payload: realtors want that link, and the
+redaction list is the one place the policy is supposed to live. `website_url`
+stays visible for everyone — it is the builder's public site. This is a change to
+what Client Mode hides, which AGENTS.md says to ask about; it was made under an
+explicit instruction to fix every finding, and it only restores what a buyer
+could see before the payload changed. The existing redaction tests caught the
+fixture gap immediately, which is what they are for.
+
+**A stream that ended without saying so left the chat bricked.** `auraStream`
+resolved silently when the body ended with no `done` or `error` event. Nothing
+downstream ran: the caret kept blinking, the send button stayed in its stop
+state, and `AURA_ABORT` was never cleared — so the guard at the top of `auraAsk`
+silently discarded every later question. The only escape was pressing a button
+that read "Stop" while nothing was running. This is exactly what iOS does when a
+PWA is backgrounded mid-answer, so it was not hypothetical; it was device-matrix
+row 11 waiting to happen. `auraStream` now resolves `true` only if a terminator
+actually arrived, and the caller reports a cut-off answer otherwise.
+
+That code had no test, which is why it shipped. It has seven now — including
+frames split across three chunks mid-token, a final frame with no trailing blank
+line, and the truncation case itself. Mutation-checked: forcing the return to
+`true` fails the suite.
+
+**Retry deleted the wrong turn.** The handler called `AURA_TURNS.pop()`, assuming
+the failed question was still last. An error bubble stays on screen, so a realtor
+who gives up, asks something else, then scrolls back and taps "Try again" popped
+the *newer* answer. It now holds a reference to the turn it created and splices
+that one out by identity, wherever it has ended up.
+
+**A note on the wheel test.** Verifying the setuptools change with `pip wheel .`
+left `build/` and `aura_chat.egg-info/` behind, and ruff walked them — 34 errors
+became 56, all of them duplicates of real files. Both are gitignored now.
+
+---
+
+## 2026-08-25 — The chat panel was never actually full height
+
+**What.** Removed `height:100dvh` from `.aura`, fixed the composer's growth
+maths, and stopped it showing a scrollbar it had not earned.
+
+**Why the panel had a gap under it.** `.aura` carried both `inset:0` and
+`height:100dvh`. `inset:0` already sets top and bottom, which sizes the panel to
+its **fixed containing block** — the real visible viewport, on any device, with
+no unit that can be wrong. The explicit height then overrode that bottom edge.
+On iOS, `dvh` tracks the *dynamic* viewport while a fixed element is laid out
+against the *layout* viewport; wherever the two disagree — browser toolbars, or
+the home-indicator band under `viewport-fit=cover` — the panel came up short and
+its own `--paper` background showed as a strip beneath the white composer.
+
+The `dvh` was belt-and-braces on top of something already correct, and it was the
+brace that broke the belt. Deleting it is the whole fix, and it is
+device-independent in a way the unit never was. The keyboard is still handled:
+`interactive-widget=resizes-content` shrinks the layout viewport, so the
+containing block shrinks, so `inset:0` follows.
+
+`dev/verify.mjs` used to **assert** `100dvh` was present. That check encoded the
+bug. It now asserts `inset:0` and the *absence* of any explicit height.
+
+**Why the composer always showed a scrollbar.** `auraGrow` set
+`height = scrollHeight`. The box is `border-box`, so that height includes the
+1px top and bottom border — but `scrollHeight` measures content plus padding and
+*excludes* border. A permanent 2px shortfall, so `scrollHeight > clientHeight`
+was true even on an empty composer. It only became visible after typing because
+iOS and macOS paint overlay scrollbars lazily; the overflow was always there.
+Adding the border back fixes it, and `overflow-y` now starts hidden and flips to
+`auto` only at the cap, so a scrollbar means "there is more than fits" rather
+than "the arithmetic was out". `auraGrow` also runs when the chat opens — left
+to the first keystroke, the opening frame kept whatever `rows="1"` produced.
+
+**The testing lesson, which is the real one.** All of this was verified at
+375×812 with `env(safe-area-inset-*)` reporting 0 — the single configuration in
+which the gap is invisible. The fix took minutes; the reason it shipped was a
+sweep that never left one screen size. Re-verified across 320×568, 360×800,
+393×852, 430×932, 740×360 landscape and 1024×1366, with device insets simulated,
+checking the composer stays flush *while the textarea grows*.
+
+---
+
+## 2026-08-25 — Cards that match the answer, and markdown that renders
+
+**What.** Two defects found on a phone. `inventory_summary` gained a `spotlight`
+parameter, and the answer text is now rendered through a small markdown parser
+instead of being dropped in as plain text.
+
+**Why `inventory_summary` was showing the wrong cards.** It carded `cheapest`
+and `dearest` on *every* call. So "how many projects do we have?" answered "158
+across 36 cities" and then showed the realtor DUO Condos and Spring Valley
+Estates underneath — two cards under an answer that was not about either of
+them. On "the least expensive in Brampton" it was worse: one of the two cards
+was the *most* expensive project in the city, directly contradicting the
+sentence above it. Two of our four starter prompts hit this, so it was the first
+thing a realtor saw.
+
+The exception itself was right and survives: naming the cheapest project is
+showing it, and a realtor should get the record with its links rather than a
+price in prose. What was wrong is that it had no condition, and — worth noting
+because it made the bug invisible — **the docstring already claimed the opposite**
+("Returns no project cards"), so the model was being told one thing while the
+code did another. `spotlight` defaults to `"none"`, and an unrecognised value
+falls back to `"none"` rather than showing everything: a model typo should fail
+toward silence, not toward the old behaviour.
+
+**Why the markdown is rendered client-side rather than asked away.** There is no
+API flag that makes a model emit or avoid markdown — it is emergent, not a
+setting. The only format guarantee OpenAI-compatible APIs offer is structured
+output (`response_format: json_schema`), and taking it would mean streaming
+partial JSON instead of text deltas, which is the entire UX. So the prompt asks
+for plain sentences (it worked — four question types that previously produced
+bold and bullets now produce none) and the client renders what leaks through.
+
+**Why a hand-written parser and not a library.** The PWA has no bundler;
+`dev/build.mjs` concatenates. `marked` + `DOMPurify` is ~30KB and a build step
+for a project that deliberately has neither. More importantly the usual pattern
+— render everything, then sanitise the tree — is weaker than what fits here.
+`auraMdRender` only ever calls `createElement` for `p`/`ul`/`li`/`strong` and
+`createTextNode` for everything else, and **never sets an attribute of any
+kind**. There is no code path that produces an `href` or an `src`, so there is
+nothing for a sanitiser to strip. `dev/verify.mjs` asserts that directly, and
+feeds the parser `<img src=x onerror=...>` to prove it comes back as text.
+
+The parse/render split is what makes it testable: `auraMdParse` is pure, so the
+verifier runs it in a VM against a **real captured answer** from the deployed
+service rather than a hand-written fixture.
+
+**Two details that only show up in motion.** An unterminated `**` is suppressed
+while streaming, so a word arrives unbolded and then bolds instead of flashing
+as punctuation. And `auraPaint` had to be rebuilt from nodes as well — when only
+the live path rendered markdown, reopening a saved chat showed the asterisks the
+fresh answer had just hidden.
+
+**Not fixed.** Compare-by-name (known-issue 4) is still broken: the model sends
+names, the tool takes ids, and it works perfectly when given real slugs. And the
+structured `summary` component — rendering counts and city tallies from
+`InventorySummary` rather than letting the model flatten them into prose — is
+still the better answer to what `spotlight` patches over.
+
+---
+
+## 2026-08-25 — The service is deployed, and three build failures worth remembering
+
+**What.** `aura-chat` is live on Railway at
+`aura-chat-production-0711.up.railway.app`. Getting there needed a build backend
+in `pyproject.toml`, a literal `requirements.txt`, a `.python-version` pin, and a
+deploy flag. The how is in [`../aura-chat/DEPLOY.md`](../aura-chat/DEPLOY.md);
+this is why those files exist at all, so nobody deletes one as redundant.
+
+**Why the deploy command has a flag that looks optional.** `railway up` archives
+from the **git repository root**, not the working directory. This service is a
+subdirectory of the portal's repo, so a plain `railway up` ships `Core.js` and
+`App.html` to a Python builder, which then reports it "could not determine how to
+build the app". `--path-as-root` is what makes `./aura-chat` the archive root.
+Do not set the service's Root Directory *as well* — with both, Railway looks for
+`aura-chat/aura-chat`.
+
+**Why `pyproject.toml` has a `[build-system]` it never needed locally.** Without
+one there is no backend for pip to call, and Railway's builder installs nothing
+**without failing**. The build goes green and the container answers every request
+with `uvicorn: command not found`. `[tool.setuptools] packages` is spelled out
+because auto-discovery refuses a flat layout with `tests/` beside `app/`.
+
+**Why `requirements.txt` duplicates the dependency list.** The obvious
+non-duplicating version — a file containing `.` — does not work: the builder
+copies `requirements.txt` and runs pip *before* copying the source, so `.` fails
+with "package directory 'app' does not exist". The duplicate is forced.
+`tests/test_requirements_match.py` fails when the two lists drift, because the
+alternative is finding out at container start, on a deploy, as an ImportError.
+
+**A note on diagnosing any of this.** All three failed near-silently:
+`railway logs --build` returned two lines, both "scheduling build", and
+`railway status` said only "Failed". The real errors were reachable through the
+GraphQL API (`buildLogs` / `deploymentLogs`), which is the first place to look,
+not the last.
+
+**Verified live.** `/doctor` green end to end — token verified, 162 projects, 87
+roll-up rows skipped. And the check the whole design rests on: events off `/chat`
+arrived at 2.98s, 5.80s, 7.96s and 8.28s rather than in one lump, so the host
+does not buffer. That was the reason Netlify's proxy was rejected, and it needed
+proving here rather than assuming.
+
+---
+
+## 2026-08-25 — The chat got a phone screen, and one card renderer replaced two
+
+**What.** Phase 3's last piece: an `#chat` route in the PWA that opens a
+full-screen overlay, streams `/chat` over `fetch` + `ReadableStream`, and renders
+project cards. Plus CORS on the service, a `_for_client` payload beside
+`_for_model`, and `projectCard()` extracted from the two screens that had their
+own copy.
+
+**Why an overlay bound to a route, rather than either alone.** The shell scrolls
+the document — sticky topbar, fixed tabbar, `.wrap` padding. A chat written into
+`#content` fights all three, and on iOS a `position:fixed` composer ends up
+*behind* the keyboard, because Safari resizes the visual viewport and leaves the
+layout viewport where it was. A bare overlay fixes the layout but has nothing for
+Android's back button to bind to. Making `#chat` a real route and having its
+loader open a fixed surface gets both: `go()`, `hashchange` and hardware back all
+work unchanged, and the chat owns its own viewport. The three things that make it
+survive the keyboard are `interactive-widget=resizes-content` in the viewport
+meta, a `100dvh` flex column with **nothing fixed inside it**, and
+`overscroll-behavior:contain` on the message list. `dev/verify.mjs` asserts all
+three, because each is the kind of rule that gets refactored away by someone who
+cannot see what it was for.
+
+**Why not `EventSource`.** It is GET-only, so a 2000-character question plus
+twenty turns of history would have to travel in a URL that every proxy logs. It
+cannot set an `Authorization` header, so the only way to pass the bearer token is
+in that same URL. And it reconnects on close without being able to tell a
+finished stream from a dropped one, so every answered question would immediately
+ask itself again — and bill for it. `fetch` also gives the Stop button an
+`AbortController` for free.
+
+**Why CORS is an explicit list and not a proxy.** Two rejected options, so nobody
+spends an afternoon rediscovering them. Proxying `/aura/*` through Netlify to
+make the service same-origin would have removed CORS entirely, but Netlify's
+redirect proxy buffers: SSE arrives as one chunk and long responses 502, which
+destroys the only reason we stream. Serving the chat from the Apps Script-hosted
+portal is impossible rather than merely hard — its pages come from a
+`googleusercontent.com` subdomain whose hash varies, so the origin cannot be
+allowlisted, and Apps Script cannot stream at all. So the chat is PWA-only, gated
+on a build-time `window.AURA_BASE` that mirrors the existing `window.AK_EXEC`
+switch. `allow_credentials` stays False: the token is a bearer header, never a
+cookie, so credentialed CORS buys nothing and with it off a wrong entry in the
+list cannot hand a third party a live session.
+
+**Why `_for_client` exists at all.** `_for_model` is tuned for a language model:
+it drops empty fields and sends `source`, which is empty on all 161 rows, while
+omitting `website_url`, `drive_url` and `broker_url` entirely. A card built from
+it would carry **no links** — a name and a dead end. `_for_client` emits the
+*portal row's* field names rather than the domain model's, which is what lets one
+`projectCard()` render a city-screen row and a chat result with no translation
+between them.
+
+**Why the Focus pill is keyed on `status` and not `is_focus`.** `status` is in
+`CONFIDENTIAL_FIELDS`, so in Client Mode it arrives blank and the pill disappears
+without anything asking it to. `is_focus` is not confidential; keying the pill on
+it would show a buyer an internal designation. The safe behaviour here is a
+consequence of the existing redaction list, not a second rule that could drift
+out of step with it — which is the only kind worth having.
+
+**Why the card renderer was extracted now.** Home and city each carried their own
+inline copy and had already drifted — different title fallbacks, different
+subtitles. The chat would have made three. The risk in sharing a renderer is
+silently changing two working screens, so `dev/verify.mjs` keeps both
+pre-extraction templates verbatim and diffs them against `projectCard()` across
+five row shapes including empty and escaped ones. Mutation-checked: changing one
+character of the pill markup fails it.
+
+**Two smaller calls.** Signing out now drops the saved chat thread — it is the
+one genuinely personal thing the app stores, and an installed PWA outlives a
+browser tab by months. And the "what changed this week?" starter prompt was
+removed: dates are month-first in the sheet and parsed day-first, and future
+dates count as recent (known-issues 1 and 2), so it is the one suggestion that
+reliably answers wrong. Put it back when those are fixed.
+
+**Not done.** No conversation list — that needs `ConversationStore`, which is
+Phase 4; V1 keeps one thread in `localStorage`. No per-project route: ten slugs
+are shared by 26 projects (known-issue 5), so ids are not safe to route on, and
+cards link out instead. The feedback row is not built. And the real-device
+matrix in the plan — the iOS keyboard in particular — cannot be run from here;
+no emulator reproduces it.
+
+---
+
 ## 2026-08-24 — A page now knows how big the set was, and counting got its own tool
 
 **What.** Two changes with one cause. `ProjectRepo.search` returns `SearchPage`

@@ -17,7 +17,7 @@ failures.
 |---|---|---|
 | 1 | Skeleton, config, auth, portal client, `/health` `/doctor` `/me` | **done** |
 | 2 | `aiindex` action (`Ai.js`), `projects_exec.py`, parsing, matching, four tools | **done** — 116 tests green |
-| 3 | `agent.py`, SSE endpoint, chat screen in the PWA — **the Day 1 gate** | next |
+| 3 | `agent.py`, SSE endpoint, chat screen in the PWA — **the Day 1 gate** | **done** — 232 tests green. Not yet deployed: the service needs an HTTPS host and its origin in `ALLOWED_ORIGINS`, and the real-device matrix is unrun |
 | 4 | Postgres persistence, history, Client Mode end to end, sources, feedback | not started |
 | 5 | Document retrieval over pgvector; structured-first | not started |
 | 6 | Audit logging, chat-specific rate limit, latency, 50-question benchmark | not started |

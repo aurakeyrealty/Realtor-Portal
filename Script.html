@@ -243,6 +243,9 @@ function routeInner(){
   if(raw!=null){ try{ arg=decodeURIComponent(raw); }catch(e){ arg=raw; } }
   var v=parts[0]||'home';
   if(!LOAD[v]){ v='home'; arg=null; }
+  /* Leaving #chat by any route — the header arrow, Android's back button, a tab —
+     takes the overlay down and hands the shell its screen back. */
+  if(v!=='chat') closeChat();
   var item=NAV.filter(function(n){return n.v===v;})[0];
   $('scr-title').textContent=item?item.t:(arg||v); $('scr-sub').textContent=item?(SUB[v]||''):'';
   var navKey=(v==='city')?'cities':v;
@@ -331,6 +334,36 @@ function kv(k,v){ if(v==null||v===''||typeof v==='object')return''; if(isUrl(v))
 function safeUrl(u){ return isUrl(u)?String(u):''; }
 function linkBtn(label,url){ var u=safeUrl(url); return u?'<a class="lnk" href="'+esc(u)+'" target="_blank" rel="noopener noreferrer">'+esc(label)+'</a>':''; }
 function telBtn(p){ p=String(p||'').trim(); return p?'<a class="lnk" href="tel:'+esc(p.replace(/[^0-9+]/g,''))+'">Call '+esc(p)+'</a>':''; }
+/* One project card, for the three screens that show one: the home screen's focus
+   list, a city's project list, and an Aura chat answer. Home and city had drifted
+   into two near-identical inline strings and the chat would have made a third, so
+   they all come through here now. The options exist only to preserve what those
+   two already rendered — nothing about their output changed when they moved.
+
+   o.focus   force the pill on (the home list is all focus projects and carries
+             no status column to derive it from)
+   o.bits    which fields make the subtitle, in order
+   o.project prefer p.project over p.name for the title, as the home rows do
+   o.price   show the starting price, which only the chat payload carries
+
+   The pill is derived from `status`, never from an `is_focus` flag: status is a
+   confidential field, so in Client Mode it arrives blank and the pill disappears
+   on its own. "Focus" is an internal designation and no buyer should read it. */
+function projectCard(p,o){
+  o=o||{};
+  var foc=!!o.focus||/focus/i.test(p.status||'');
+  var keys=o.bits||['city','builder','type','occupancy'];
+  if(foc) keys=keys.filter(function(k){ return k!=='status'; });   // the pill already said it
+  var bits=keys.map(function(k){ return p[k]; }).filter(Boolean);
+  var price=(o.price&&p.starting_price)?money(p.starting_price):'';
+  return '<div class="card">'
+    +(foc?'<span class="pill focus">Focus</span>':'')
+    +'<div class="card-t">'+esc((o.project?(p.project||p.name):(p.name||p.project))||'Project')+'</div>'
+    +(bits.length?'<div class="card-s">'+esc(bits.join(' · '))+'</div>':'')
+    +(price?'<div class="card-s" style="color:var(--ink2);font-weight:600">From '+esc(price)+'</div>':'')
+    +'<div class="lnkrow">'+linkBtn('Builder',p.broker_url)+linkBtn('Drive',p.drive_url)+linkBtn('Website',p.website_url)+'</div>'
+  +'</div>';
+}
 /* a sheet cell can hold several addresses ("a@x.com, b@y.com"); a raw comma in
    a mailto is malformed, so link each address on its own */
 function mailAddrs(e){ return String(e||'').split(/[,;]+/).map(function(s){return s.trim();}).filter(Boolean); }
@@ -350,8 +383,7 @@ function loadHome(){
     if(groups.order.length) jumps.push({id:'sec-contacts',label:'Contacts ('+(HOME.contacts||[]).length+')'});
     if(jumps.length>1) h+='<div class="chips" style="margin-bottom:16px">'+jumps.map(function(j){ return '<button class="citychip" data-j="'+j.id+'">'+(j.ic?'<span style="color:var(--ochre)">'+ico('star',13)+'</span> ':'')+esc(j.label)+'</button>'; }).join('')+'</div>';
     if(focus.length){ h+='<div class="sec-h" id="sec-focus"><span style="color:var(--ochre)">'+ico('star',13)+'</span> Focus projects · '+focus.length+'</div>'; h+=focus.map(function(p){
-      var meta=[p.builder,p.type,p.occupancy].filter(Boolean).join(' · ');
-      return '<div class="card"><span class="pill focus">Focus</span><div class="card-t">'+esc(p.project||p.name||'Project')+'</div>'+(p.city?'<div class="card-s">'+esc(p.city)+(meta?' · '+esc(meta):'')+'</div>':(meta?'<div class="card-s">'+esc(meta)+'</div>':''))+'<div class="lnkrow">'+linkBtn('Builder',p.broker_url)+linkBtn('Drive',p.drive_url)+linkBtn('Website',p.website_url)+'</div></div>';
+      return projectCard(p,{focus:true,project:true});
     }).join(''); }
     if(events.length){ h+='<div class="sec-h" id="sec-events">Upcoming</div>'; h+=events.map(function(ev){
       /* the server sends details/time/location/link — the old card read
@@ -500,8 +532,7 @@ function loadCityDetail(name){
     var focus=rows.filter(function(p){return /focus/i.test(p.status||'');}), rest=rows.filter(function(p){return !/focus/i.test(p.status||'');});
     var ordered=focus.concat(rest);
     $('content').innerHTML=stamp(d)+'<div class="sec-h">'+esc(name)+' — '+rows.length+' projects</div>'+ordered.map(function(p){
-      var foc=/focus/i.test(p.status||'');
-      return '<div class="card">'+(foc?'<span class="pill focus">Focus</span>':'')+'<div class="card-t">'+esc(p.name||p.project||'Project')+'</div>'+(p.status&&!foc?'<div class="card-s">'+esc(p.status)+'</div>':'')+'<div class="lnkrow">'+linkBtn('Builder',p.broker_url)+linkBtn('Drive',p.drive_url)+linkBtn('Website',p.website_url)+'</div></div>';
+      return projectCard(p,{bits:['status']});
     }).join('');
   }).catch(function(e){ if(e===STALE_ERR) return; $('content').innerHTML='<div class="err">Could not load '+esc(name)+'.</div>'; });
 }
@@ -1997,6 +2028,12 @@ function signOut(){
 function forgetData(){
   MEM={};
   try{ Object.keys(localStorage).forEach(function(k){ if(k.indexOf('akc_')===0) localStorage.removeItem(k); }); }catch(e){}
+  /* The chat thread goes with the session too. It is the one thing here that is
+     genuinely personal — a realtor's own questions, and answers that may carry
+     commission and builder contacts — and the next person to sign in on this
+     phone must not find it waiting. */
+  AURA_TURNS=[]; AURA_MODE='realtor';
+  try{ localStorage.removeItem('ak_aura'); }catch(e){}
 }
 /* the server refused a token we thought was good: expired, revoked, or the
    signing key changed under us */
@@ -2013,6 +2050,393 @@ function installHtml(){
   return '<div class="install" id="inst"><button class="x" onclick="dismissInstall()" aria-label="Dismiss">'+ico('x',15)+'</button><b>Add to your home screen.</b> '+tip+'</div>';
 }
 function dismissInstall(){ try{localStorage.setItem('ak_install','1');}catch(e){} var el=$('inst'); if(el)el.style.display='none'; }
+
+/* ---- Aura chat ---------------------------------------------------------
+   Talks to the Aura Chat service, which is a separate deployment from the
+   portal's Apps Script endpoint — window.AURA_BASE, set by dev/build.mjs in the
+   generated index.html. The Apps Script host does not set it and never can: its
+   pages are served from a googleusercontent.com subdomain whose hash varies, so
+   the service cannot allowlist it, and Apps Script cannot stream at all. There,
+   auraReady() is false, the button never appears, and #chat falls back to home.
+
+   Streaming is fetch + ReadableStream rather than EventSource, which is GET-only
+   (our question and its history do not belong in a URL) and cannot set an
+   Authorization header (which would put the bearer token in one). EventSource
+   also reconnects on close and cannot tell a finished stream from a dropped one,
+   so every answered question would immediately ask itself again. */
+var AURA_MODE='realtor', AURA_TURNS=[], AURA_ABORT=null, AURA_SEQ=0, AURA_HOME='';
+var AURA_MAX_TURNS=20;    /* matches MAX_HISTORY_TURNS on the server; over it is a 422, not a trim */
+/* The first thing a realtor sees, so every one of these has to work. "What changed
+   this week?" was here and came out: dates in the sheet are month-first and parsed
+   day-first, and future dates count as recent (known-issues 1 and 2), so it is the
+   one question that reliably answers wrong. Put it back when those are fixed. */
+var AURA_SEEDS=[
+  'Detached homes under $1M in Brampton',
+  'How many projects do we have, and in which cities?',
+  'What is our cheapest project right now?',
+  'Which builders do we work with the most?'
+];
+function auraReady(){ return !!window.AURA_BASE; }
+function auraBottom(){ var l=$('auraList'); if(l) l.scrollTop=l.scrollHeight; }
+
+function loadChat(){
+  /* routeInner has already painted a skeleton into #content behind us; the
+     overlay covers it and closeChat() hands the screen back. */
+  if(!auraReady()){ go('home'); return; }
+  $('content').innerHTML='';
+  document.body.classList.add('chat');
+  $('aura').hidden=false;
+  /* Size the composer before the realtor touches it. Left to the first input
+     event, the opening frame keeps whatever height rows="1" produced, which is
+     the one state the growth maths never got to correct. */
+  auraGrow($('auraInput'));
+  auraPaint();
+}
+function closeChat(){
+  if(!$('aura')||$('aura').hidden) return;
+  auraStop();
+  $('aura').hidden=true;
+  document.body.classList.remove('chat');
+}
+/* Client Mode repaints the whole header, not one word inside it: a realtor has to
+   be able to see which mode they are in from arm's length, before turning the
+   phone around, not by reading it. */
+function auraPaintMode(){
+  $('aura').classList.toggle('client',AURA_MODE==='client');
+  $('auraChipT').textContent=AURA_MODE==='client'?'Client':'Realtor';
+  $('auraChip').setAttribute('aria-pressed',AURA_MODE==='client'?'true':'false');
+  $('auraSub').textContent=AURA_MODE==='client'?'Client mode':'Aura Key projects';
+}
+function auraPaint(){
+  var l=$('auraList'); if(!l) return;
+  auraPaintMode();
+  if(!AURA_TURNS.length){
+    l.innerHTML='<div class="aura-empty"><h2>Ask Aura</h2><p>Our projects, in plain English.</p>'
+      +AURA_SEEDS.map(function(s){ return '<button class="aura-seed" data-q="'+esc(s)+'">'+esc(s)+'</button>'; }).join('')
+      +'</div>';
+    l.querySelectorAll('.aura-seed').forEach(function(b){
+      b.addEventListener('click',function(){ auraAsk(b.dataset.q); });
+    });
+    return;
+  }
+  /* Rebuilt node by node rather than as one innerHTML string, because the
+     answers have to go through the same renderer the live stream uses. When
+     only the streaming path formatted markdown, a reopened chat showed the
+     asterisks the fresh answer had just hidden. */
+  l.replaceChildren();
+  AURA_TURNS.forEach(function(t){
+    var wrap=document.createElement('div');
+    wrap.className='aura-msg'+(t.role==='user'?' aura-me':'');
+    if(t.role==='user'){
+      var span=document.createElement('span');
+      span.textContent=t.content;
+      wrap.appendChild(span);
+    } else {
+      var ai=document.createElement('div');
+      ai.className='aura-ai';
+      auraMd(ai,t.content);
+      wrap.appendChild(ai);
+    }
+    l.appendChild(wrap);
+  });
+  auraBottom();
+}
+/* Flipping the mode clears the thread on purpose. A realtor-only answer must not
+   be one scroll away while a buyer is holding the phone. */
+function auraMode(m){
+  if(m===AURA_MODE) return;
+  AURA_MODE=m; AURA_TURNS=[]; auraSave(); auraPaint();
+}
+function auraNewChat(){ auraStop(); AURA_TURNS=[]; auraSave(); auraPaint(); }
+
+function auraSave(){
+  try{ localStorage.setItem('ak_aura',JSON.stringify({m:AURA_MODE,t:AURA_TURNS.slice(-AURA_MAX_TURNS)})); }catch(e){}
+}
+function auraLoad(){
+  try{
+    var o=JSON.parse(localStorage.getItem('ak_aura')||'null');
+    if(o&&o.t&&o.t.length){ AURA_MODE=o.m==='client'?'client':'realtor'; AURA_TURNS=o.t.slice(-AURA_MAX_TURNS); }
+  }catch(e){}
+}
+
+/* Reads the SSE framing off the body stream: frames are separated by a blank
+   line, and every line we care about starts with `data:`.
+
+   Resolves with true only if a terminating event (`done` or `error`) actually
+   arrived. A stream can end without one -- iOS suspends fetch when the app is
+   backgrounded, a proxy times out, the container is recycled mid-answer -- and
+   that used to resolve silently: the caret kept blinking, the send button stayed
+   in its stop state, and because AURA_ABORT was never cleared every later
+   question was dropped on the floor with no indication why. Ending without a
+   terminator is a failure and has to be reported as one. */
+function auraStream(body,on){
+  var reader=body.getReader(), dec=new TextDecoder(), buf='', ended=false;
+  return (function pump(){
+    return reader.read().then(function(r){
+      if(r.done){
+        // A frame with no trailing blank line is still a frame worth reading.
+        if(buf) frames(buf);
+        return ended;
+      }
+      buf+=dec.decode(r.value,{stream:true});
+      var i;
+      while((i=buf.indexOf('\n\n'))>=0){ frames(buf.slice(0,i)); buf=buf.slice(i+2); }
+      return pump();
+    });
+  })();
+  function frames(chunk){
+    chunk.split('\n').forEach(function(line){
+      if(line.slice(0,5)!=='data:') return;
+      var ev; try{ ev=JSON.parse(line.slice(5)); }catch(e){ return; }
+      if(ev&&(ev.type==='done'||ev.type==='error')) ended=true;
+      on(ev);
+    });
+  }
+}
+/* What the model is doing, in words a realtor recognises. This is the whole
+   point of streaming tool events: it fills the seconds before the first token
+   with something truer than a spinner. */
+function auraStep(ev){
+  var a=ev.args||{};
+  if(ev.tool==='search_projects') return 'Searching'+(a.city?' '+a.city:' our projects')+'…';
+  if(ev.tool==='inventory_summary') return 'Counting the inventory…';
+  if(ev.tool==='get_project') return 'Looking up '+(a.project_id_or_name||'a project')+'…';
+  if(ev.tool==='compare_projects') return 'Comparing…';
+  if(ev.tool==='get_recent_projects') return 'Checking what changed…';
+  return 'Working…';
+}
+/* The server sends `TypeName: message`, which is the right shape for the CLI's
+   --dev output and the wrong one for a realtor: "PortalError" is not a sentence.
+   The raw text still goes to the console, where it is worth having. */
+function auraSay(detail){
+  var raw=String(detail||'');
+  try{ console.warn('[aura]',raw); }catch(e){}
+  var m=raw.replace(/^[A-Za-z_]*Error:\s*/,'');
+  if(/login required|unauthor/i.test(m)) return 'Aura could not read our records with your session. Sign out and back in.';
+  if(/not configured/i.test(m)) return 'Aura is not finished being set up. Tell whoever runs the portal.';
+  if(/timeout|timed out/i.test(m)) return 'That took too long. Try again in a moment.';
+  return m||'Something went wrong.';
+}
+/* ---- the answer, rendered -------------------------------------------------
+   The model writes markdown whether we ask for it or not -- there is no API flag
+   that turns it off, and the prompt asking for plain prose is a request, not a
+   guarantee. So the client handles what leaks through.
+
+   Deliberately split in two. auraMdParse is pure: text in, plain objects out,
+   no DOM, which is what lets dev/verify.mjs run it against real captured model
+   output. auraMdRender is the only part that touches the page, and it builds
+   nodes -- never innerHTML, and never an attribute of any kind. That matters
+   more than the formatting: it means there is no code path where a project
+   name or an incentive field becomes markup. An allowlist by construction
+   beats sanitising a tree after the fact, because there is nothing to strip.
+
+   Supported, and nothing else: blank-line paragraphs, `*`/`-` list items, and
+   **bold**. Anything else stays literal -- a heading or a table showing up as
+   text is a signal the prompt needs fixing, not the renderer. */
+function auraMdSpans(line){
+  var out=[], i=0, n=line.length;
+  while(i<n){
+    var at=line.indexOf('**',i);
+    if(at<0){ out.push({b:false,s:line.slice(i)}); break; }
+    var end=line.indexOf('**',at+2);
+    /* No closing marker yet -- we are mid-stream, part way through the token.
+       Drop the dangling ** rather than showing it: the word arrives unbolded
+       and then bolds, instead of flashing as punctuation. */
+    if(end<0){
+      if(at>i) out.push({b:false,s:line.slice(i,at)});
+      out.push({b:false,s:line.slice(at+2)});
+      break;
+    }
+    if(at>i) out.push({b:false,s:line.slice(i,at)});
+    out.push({b:true,s:line.slice(at+2,end)});
+    i=end+2;
+  }
+  return out.filter(function(x){ return x.s!==''; });
+}
+function auraMdParse(text){
+  var blocks=[], list=null;
+  String(text==null?'':text).split('\n').forEach(function(raw){
+    var line=raw.replace(/\s+$/,'');
+    var item=line.match(/^\s*[*-]\s+(.*)$/);
+    if(item){
+      if(!list){ list={t:'ul',items:[]}; blocks.push(list); }
+      list.items.push(auraMdSpans(item[1]));
+      return;
+    }
+    list=null;
+    if(!line.trim()){ blocks.push({t:'gap'}); return; }
+    var last=blocks[blocks.length-1];
+    /* A single newline inside a paragraph is a space, as markdown has it. */
+    if(last&&last.t==='p'){ last.spans=last.spans.concat(auraMdSpans(' '+line.trim())); return; }
+    blocks.push({t:'p',spans:auraMdSpans(line.trim())});
+  });
+  return blocks.filter(function(b){ return b.t!=='gap'; });
+}
+function auraMdRender(blocks){
+  var frag=document.createDocumentFragment();
+  function spans(into,list){
+    list.forEach(function(sp){
+      var node=document.createTextNode(sp.s);
+      if(sp.b){ var b=document.createElement('strong'); b.appendChild(node); node=b; }
+      into.appendChild(node);
+    });
+  }
+  blocks.forEach(function(b){
+    if(b.t==='ul'){
+      var ul=document.createElement('ul');
+      b.items.forEach(function(it){ var li=document.createElement('li'); spans(li,it); ul.appendChild(li); });
+      frag.appendChild(ul);
+    } else {
+      var p=document.createElement('p'); spans(p,b.spans); frag.appendChild(p);
+    }
+  });
+  return frag;
+}
+function auraMd(el,text){ el.replaceChildren(auraMdRender(auraMdParse(text))); }
+
+function auraBusy(on){
+  var s=$('auraSend');
+  s.classList.toggle('stop',on);
+  s.setAttribute('aria-label',on?'Stop':'Send');
+  $('auraInput').disabled=false;   // a realtor may type the next question while this one runs
+  /* The answer node is rebuilt on every delta, and it lives inside a polite live
+     region -- so without this a screen reader re-reads the whole growing answer
+     once per token. aria-busy holds the announcement until the stream finishes,
+     and then it is read once. */
+  var l=$('auraList'); if(l) l.setAttribute('aria-busy',on?'true':'false');
+}
+function auraStop(){
+  if(AURA_ABORT){ try{ AURA_ABORT.abort(); }catch(e){} AURA_ABORT=null; }
+  auraBusy(false);
+}
+
+function auraAsk(q){
+  q=String(q||'').trim();
+  if(!q||AURA_ABORT) return;
+  if(!TOKEN){ closeChat(); showGate(); return; }
+  var history=AURA_TURNS.slice(-AURA_MAX_TURNS);
+  var l=$('auraList');
+  if(!AURA_TURNS.length) l.innerHTML='';          // clear the starter prompts
+  /* Kept by reference, not by position. Retry used to pop() the last turn on the
+     assumption it was this question's -- but an error bubble stays on screen, so
+     a realtor who gives up, asks something else, then scrolls back and taps
+     "Try again" would have popped the NEWER answer instead. */
+  var myTurn={role:'user',content:q};
+  AURA_TURNS.push(myTurn);
+  var id='aura'+(++AURA_SEQ);
+  l.insertAdjacentHTML('beforeend',
+    '<div class="aura-msg aura-me"><span>'+esc(q)+'</span></div>'
+    +'<div class="aura-msg" id="'+id+'"><div class="aura-step">Thinking…</div><div class="aura-ai on"></div><div class="aura-cards"></div></div>');
+  auraBottom(); auraBusy(true);
+  var wrap=$(id), step=wrap.querySelector('.aura-step'),
+      body=wrap.querySelector('.aura-ai'), cards=wrap.querySelector('.aura-cards'), text='';
+  function finish(){ AURA_ABORT=null; auraBusy(false); if(step&&step.parentNode) step.remove(); body.classList.remove('on'); }
+  function failed(msg){
+    finish();
+    /* Replaces the answer rather than appending under it: half an answer that
+       reads like a whole one is worse than no answer. */
+    wrap.innerHTML='<div class="aura-err">'+esc(msg)+'<br><button type="button">Try again</button></div>';
+    wrap.querySelector('button').addEventListener('click',function(){
+      wrap.remove();
+      var ix=AURA_TURNS.indexOf(myTurn);       // this question's turn, wherever it now sits
+      if(ix>=0) AURA_TURNS.splice(ix,1);
+      auraAsk(q);
+    });
+    auraBottom();
+  }
+  AURA_ABORT=new AbortController();
+  fetch(window.AURA_BASE.replace(/\/+$/,'')+'/chat',{
+    method:'POST',
+    headers:{'Content-Type':'application/json','Authorization':'Bearer '+TOKEN},
+    body:JSON.stringify({question:q,mode:AURA_MODE,history:history}),
+    signal:AURA_ABORT.signal
+  }).then(function(r){
+    if(r.status===401||r.status===403){ closeChat(); sessionLost(); return null; }
+    if(!r.ok||!r.body) throw new Error('HTTP '+r.status);
+    return auraStream(r.body,function(ev){
+      if(ev.type==='start'){
+        /* The mode the server actually applied, not the one we believe we sent. */
+        AURA_MODE=ev.mode==='client'?'client':'realtor'; auraPaintMode();
+      } else if(ev.type==='tool'){ if(step) step.textContent=auraStep(ev); }
+      else if(ev.type==='tool_result'){ if(step&&ev.count) step.textContent+=' found '+ev.count; }
+      else if(ev.type==='text'){
+        if(step&&step.parentNode) step.remove();
+        text+=ev.text;
+        auraMd(body,text);          /* nodes, never innerHTML: model output is data, not markup */
+        auraBottom();
+      }
+      else if(ev.type==='projects'){
+        cards.innerHTML=(ev.projects||[]).map(function(p){ return projectCard(p,{price:true}); }).join('');
+        auraBottom();
+      }
+      else if(ev.type==='done'){
+        finish();
+        AURA_TURNS.push({role:'assistant',content:text});
+        auraSave(); auraBottom();
+      }
+      else if(ev.type==='error'){ failed(auraSay(ev.detail)); }
+    }).then(function(ended){
+      /* The stream closed without saying how it finished. Nothing above ran, so
+         say so rather than leaving a caret blinking under a half-answer. */
+      if(ended===false) failed(text
+        ? 'The answer was cut off. Try again.'
+        : 'The connection dropped before Aura could answer. Try again.');
+    });
+  }).catch(function(e){
+    if(e&&e.name==='AbortError'){ finish(); return; }
+    failed(navigator.onLine===false?'You are offline.':'Could not reach Aura.');
+  });
+}
+
+(function auraWire(){
+  if(!auraReady()) return;
+  LOAD.chat=loadChat;
+  $('askFab').hidden=false;
+  document.body.classList.add('fab');
+  auraLoad();
+  /* Remember the screen we came from, so ← puts the realtor back where they were
+     rather than dumping them on Home. On Android the hardware back does the same
+     thing for free, because #chat is a real route. */
+  $('askFab').addEventListener('click',function(){
+    AURA_HOME=(location.hash||'#home').replace(/^#/,'')||'home';
+    go('chat');
+  });
+  $('auraBack').addEventListener('click',function(){ go(AURA_HOME||'home'); });
+  $('auraNew').addEventListener('click',auraNewChat);
+  $('auraChip').addEventListener('click',function(){ auraMode(AURA_MODE==='client'?'realtor':'client'); });
+  $('auraForm').addEventListener('submit',function(e){
+    e.preventDefault();
+    if(AURA_ABORT){ auraStop(); return; }
+    var t=$('auraInput'), q=t.value;
+    t.value=''; auraGrow(t);
+    auraAsk(q);
+  });
+  var input=$('auraInput');
+  input.addEventListener('input',function(){ auraGrow(input); });
+  /* Enter sends on a hardware keyboard; shift+Enter is a newline. On a phone the
+     enterkeyhint="send" key fires this too. */
+  input.addEventListener('keydown',function(e){
+    if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); $('auraForm').dispatchEvent(new Event('submit',{cancelable:true})); }
+  });
+})();
+/* Grow with the text, stop at max-height, and only then show a scrollbar.
+   The border has to be added back: the box is border-box, so setting height to
+   scrollHeight -- which counts content and padding but NOT border -- leaves the
+   content 2px short of its own box. The textarea then reports itself as
+   overflowing while holding one short line, and the browser paints a scrollbar
+   on an empty composer. Reading max-height rather than hardcoding it keeps the
+   cap in the stylesheet, where its value can be seen next to the layout. */
+function auraGrow(t){
+  if(!t) return;
+  t.style.height='auto';
+  t.style.overflowY='hidden';           // measure unconstrained
+  var cs=getComputedStyle(t);
+  var border=(parseFloat(cs.borderTopWidth)||0)+(parseFloat(cs.borderBottomWidth)||0);
+  var max=parseFloat(cs.maxHeight)||Infinity;
+  var want=t.scrollHeight+border;
+  t.style.height=Math.min(want,max)+'px';
+  t.style.overflowY=want>max?'auto':'hidden';
+}
 
 /* back-to-top: appears past ~30% of the page (capped at 1500px so very long
    lists don't hide it), one shared component for every screen */

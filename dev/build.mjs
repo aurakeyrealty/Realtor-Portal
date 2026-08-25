@@ -12,6 +12,9 @@
  *   node dev/build.mjs --serve    build, then serve www/ on :4600 (rebuilds per request)
  *   AK_EXEC=http://localhost:4599/api node dev/build.mjs --serve
  *                                 same, but the bundle talks to the dev harness
+ *   AURA_BASE=http://localhost:8000 node dev/build.mjs --serve
+ *                                 same, plus the Aura chat button, pointed at a
+ *                                 locally running aura-chat service
  *
  * Optional inputs, picked up when present:
  *   assets/icons/*.png            app icons (see the plan's icon table)
@@ -22,7 +25,7 @@ import { readFile, writeFile, mkdir, rm, readdir, copyFile, access } from 'node:
 import { createServer } from 'node:http';
 import { createHash } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
-import { EXEC } from './config.mjs';
+import { EXEC, AURA } from './config.mjs';
 
 const ROOT = new URL('..', import.meta.url);
 const OUT = new URL('www/', ROOT);
@@ -129,7 +132,7 @@ if ('serviceWorker' in navigator && window.AK_EXEC) {
 }
 </script>`;
 
-export async function build(exec = EXEC) {
+export async function build(exec = EXEC, aura = AURA) {
   const app = await read('App.html');
   const css = unwrap(await read('Styles.html'), 'style', 'Styles.html');
   const js = unwrap(await read('Script.html'), 'script', 'Script.html');
@@ -171,7 +174,11 @@ export async function build(exec = EXEC) {
   for (const [tag, name] of includes) {
     index = index.replace(tag, () => name === 'Styles'
       ? head
-      : '<script>window.AK_EXEC=' + JSON.stringify(exec) + ';</script>\n<script src="app.js"></script>\n' + REGISTER);
+      : '<script>window.AK_EXEC=' + JSON.stringify(exec)
+        // Empty string is falsy, so an unset AURA_BASE leaves auraReady() false
+        // and the chat button hidden. Only a real service URL turns it on.
+        + ';window.AURA_BASE=' + JSON.stringify(aura) + ';</script>\n'
+        + '<script src="app.js"></script>\n' + REGISTER);
   }
   // <base target="_top"> routes the sandboxed Apps Script iframe's untargeted links
   // (tel:, mailto:) to the top-level page. It has no href, so it never touched URL

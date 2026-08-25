@@ -14,3 +14,20 @@
  */
 export const EXEC = process.env.AK_EXEC
   || 'https://script.google.com/macros/s/AKfycbxB20Mc56_q__y-1-EbXGFDVODqwTNv3lyj7zuuuXDm8WVBaCDpHqHWHtIQWXNqDojC-g/exec';
+
+/**
+ * The Aura Chat service — a separate deployment from the Apps Script endpoint
+ * above, because Apps Script cannot stream and the chat screen is nothing but a
+ * stream.
+ *
+ * Setting this is what turns the chat on. The Apps Script-hosted copy of the
+ * portal never gets it: its pages are served from a googleusercontent.com
+ * subdomain whose hash varies per deployment, so the service cannot allowlist
+ * that origin, and it could not stream to it anyway. Empty here means the
+ * "Ask Aura" button never renders and #chat falls back to Home — one flag,
+ * rather than a second code path that has to be kept honest.
+ *
+ * Whatever value ships here must also appear in the service's ALLOWED_ORIGINS,
+ * or the browser blocks the POST before it leaves the phone.
+ */
+export const AURA = process.env.AURA_BASE || '';
