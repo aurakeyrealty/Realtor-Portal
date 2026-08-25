@@ -12,6 +12,21 @@ dependencies = [
   "pydantic-ai-slim[openai]>=2.33",
 ]
 
+# Without this, `pip install .` has no backend to call -- and Railway's builder
+# quietly installs nothing, producing a container that boots and then says
+# "uvicorn: command not found" on every request. See DEPLOY.md.
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+# Auto-discovery refuses a flat layout with more than one top-level directory,
+# and `tests` sits next to `app`. A pattern rather than a list: an enumerated
+# one silently omits the next subpackage somebody adds, and the symptom is a
+# ModuleNotFoundError at container start while the tests pass locally against
+# an editable install running from source.
+[tool.setuptools.packages.find]
+include = ["app*"]
+
 [project.scripts]
 aura = "app.cli:main"
 

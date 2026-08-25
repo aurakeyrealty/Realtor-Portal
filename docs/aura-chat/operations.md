@@ -64,6 +64,8 @@ Every one is read in `app/config.py` and nowhere else. `.env` is git-ignored;
 | `EXEC_URL` | *(none)* | The deployed Apps Script web app. Must equal `EXEC` in `dev/config.mjs`. |
 | `EXEC_TIMEOUT_S` | `30.0` | Per-request timeout against the portal. Cold index builds are slow; see [`../portal.md`](../portal.md) §3.6. |
 | `SESSION_MS` | `604800000` (7 days) | Token lifetime. **Must match `SESSION_MS` in `Core.js`** — longer here keeps honouring tokens the portal has retired. |
+| `ALLOWED_ORIGINS` | `http://localhost:4600,http://localhost:4599` | Comma-separated CORS allowlist. The PWA's origin **must** be in here or the browser blocks the chat before the request leaves the phone. Never `*`: a wildcard lets any page a realtor visits spend their token. |
+| `ALLOWED_ORIGIN_REGEX` | *(empty)* | Only for Netlify deploy previews, which get a random subdomain per draft deploy and so cannot be named in the list. A standing hole in the allowlist — set it while testing previews, unset it after. |
 | `OPENROUTER_API_KEY` | *(none)* | Phase 3. |
 | `LLM_MODEL` | `google/gemini-2.5-flash` | Phase 3. A model swap is this string. |
 | `DATABASE_URL` | *(none)* | Phase 4. |
@@ -82,11 +84,32 @@ Railway, from the `Procfile`: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
 1. Set `TOKEN_SECRET` and `EXEC_URL` in Railway's variables. The service starts
    without them and then refuses every request — `/doctor` names which is
    missing, `/health` deliberately does not.
+1b. Set `ALLOWED_ORIGINS` to the PWA's origin. Without it the chat screen fails
+   in the browser with a CORS error and a green `/health` — the request never
+   reaches the service, so nothing here records that it happened.
 2. **Set a usage limit on day one.** Railway has no spend cap by default; this
    is a listed risk in [`architecture.md`](architecture.md) §7.
 3. `GET /health` should answer `{"status":"ok","ok":true}` from the internet.
 4. `GET /doctor` with a real token is the actual readiness check — it proves the
    portal accepts our auth *and* that project data comes back.
+5. **Prove the host does not buffer.** The chat is nothing but a stream, and a
+   buffering proxy turns it into a five-second blank followed by a wall of text
+   — with the same 200 as a healthy one, so nothing else catches it:
+
+   ```bash
+   curl -N -H "Authorization: Bearer $TOK" -H 'Content-Type: application/json' \
+     -d '{"question":"cheapest project"}' https://<service>/chat
+   ```
+
+   Events must appear one at a time. This is why Netlify's redirect proxy was
+   rejected as a way to make the service same-origin: it buffers, and long
+   responses 502.
+6. Rebuild and redeploy the PWA with `AURA_BASE` pointing at the service —
+   `AURA_BASE=https://<service> node dev/deploy.mjs --prod`. Until that is set,
+   the bundle ships without the chat button by design; see
+   [`../portal.md`](../portal.md). The Apps Script-hosted copy never gets it:
+   its pages come from a `googleusercontent.com` subdomain whose hash varies, so
+   the origin cannot be allowlisted, and Apps Script cannot stream anyway.
 
 ---
 
