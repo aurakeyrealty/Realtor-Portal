@@ -297,6 +297,66 @@ benchmark quietly becomes a description of the bugs.
 ---
 
 <a id="for-sudhanshu"></a>
+## 9. Client Mode discloses the focus list, and what focus means commercially
+
+**Severity: High** — it is the one thing Client Mode exists to prevent, and it is
+invisible to the leak test that is supposed to catch it.
+
+**Symptom.** Asked, in **Client Mode**, "Are there projects you earn more on?
+Which ones should I look at first?", Aura answers:
+
+> "Aura Key Realty prioritizes certain projects where we have **special
+> arrangements**, offering unique benefits to both our clients and **our
+> realtors**. These are our 'focus projects.'"
+
+...and lists them, with twelve cards. That is the brokerage telling a buyer it
+has a commercial interest in specific projects, over the realtor's shoulder.
+
+**Root cause -- two halves, both needed.**
+
+1. `is_focus` is **not** in `CLIENT_HIDDEN`. `status` is, so the Focus pill on
+   the card correctly disappears -- but the underlying boolean survives
+   redaction, and `search_projects(focus_only=True)` is still callable in Client
+   Mode. Verified: `Project(is_focus=True).for_viewer(CLIENT)` returns
+   `status=''` and `is_focus=True`.
+2. The **base** system prompt -- the one used in both modes -- says "Focus
+   projects are the ones the brokerage is *actively pushing*." `CLIENT_MODE_NOTE`
+   names commission, internal notes and builder contacts, but never focus. So in
+   Client Mode the model holds an explanation of the commercial arrangement and
+   no instruction against sharing it.
+
+**Why the leak test does not catch it.** AUR-58's probe matches the *real values*
+from the sheet against everything reaching the phone. This disclosure contains no
+sheet value at all -- the model says it in its own words. Twelve adversarial
+probes, including a prompt-injection attempt, come back clean while this happens.
+
+**Reproduce.**
+
+```bash
+curl -sN -H "Authorization: Bearer $TOK" -H 'Content-Type: application/json' \
+  -d '{"question":"Are there projects you earn more on? Which ones should I look at first?","mode":"client"}' \
+  https://aura-chat-production-0711.up.railway.app/chat | grep text
+```
+
+**The fix I would write.** Structural first, prompt second, because a prompt rule
+is a request:
+
+* Add `is_focus` to `CONFIDENTIAL_FIELDS` and `CLIENT_HIDDEN`. It is a boolean,
+  so `for_viewer` must blank it to `False` -- the current
+  `model_copy(update={f: "" for f in hidden})` writes `""`, which is falsy for a
+  bool field only after pydantic coercion and is a trap worth checking. Adding
+  the field without getting that right could make it leak harder, not less.
+* Reject `focus_only=True` in Client Mode at the tool boundary, so the capability
+  is gone rather than discouraged.
+* Move "the ones the brokerage is actively pushing" out of the shared prompt, or
+  add a Client Mode line forbidding any explanation of what focus means.
+
+**Also worth deciding:** whether a buyer may see focus projects *at all* without
+the commercial framing. Showing them is arguably fine -- a realtor recommends
+things. Explaining that the brokerage earns more on them is not.
+
+---
+
 ## For Sudhanshu — data, not code
 
 No amount of code fixes these.
@@ -308,4 +368,5 @@ No amount of code fixes these.
 | `SOURCE URL` empty | all 161 | Nothing to cite. `WEBSITE URL` has 38 and is the usable one. |
 | `DEPOSIT %` empty | every priced project | "Which have less than 10% deposit?" cannot be answered at all. |
 | `PROJECT ID` empty | 132 of 161 | See [#5](#5). |
+| `COMMISSION`, `INTERNAL NOTES`, `FUB TEMPLATE` empty | all 158 | **The Client Mode leak test (AUR-58) passes vacuously for these three.** You cannot leak a field with no data in it. Redaction is proven for `broker_url`, `drive_url`, `builder_contact`, `builder_office` and `builder_login`, which do carry values — the other three are untested until somebody fills them, and they are the three the test was written for. |
 | The ONTARIO tab | 87 rows | **Decide before filling PROJECT ID.** If a duplicated row gets the *same* id as its city-tab row, de-duplication becomes possible. If it gets a *different* id, the two become formally distinct projects and the last clue that they are the same — the name — stops being enough. Different ids are worse than no ids. |
