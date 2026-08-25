@@ -98,6 +98,42 @@ def _for_model(p: Project) -> dict[str, Any]:
     return out
 
 
+def _for_client(p: Project) -> dict[str, Any]:
+    """One project as the PWA's card renderer should see it.
+
+    Deliberately NOT _for_model. That shape is tuned for a language model: it
+    drops the three link columns entirely and sends `source`, which is empty on
+    every row in the sheet -- a card built from it would carry no links at all.
+
+    The field names here are the portal row's, not the domain model's, so the
+    same `projectCard()` in the PWA renders a chat result and a city-screen row
+    with no translation between them.
+
+    `status` rather than `is_focus` is the reason the Focus pill behaves: status
+    is a confidential field, so in Client Mode it arrives blank and the pill
+    disappears on its own. `is_focus` is not confidential, and keying the pill
+    on it would show a buyer an internal designation.
+
+    Empties are kept, not dropped: linkBtn() and the renderer already treat ""
+    as "no link", and a stable set of keys is easier for a client to reason
+    about than a model's prose.
+    """
+    return {
+        "id": p.id,
+        "name": p.name,
+        "city": p.city,
+        "builder": p.builder,
+        "status": p.status,
+        "type": p.property_type,
+        "starting_price": p.starting_price,
+        "occupancy": p.occupancy,
+        "last_updated": p.last_updated.isoformat() if p.last_updated else None,
+        "broker_url": p.broker_url,
+        "drive_url": p.drive_url,
+        "website_url": p.website_url,
+    }
+
+
 def build_agent(model: Model | str, *, client_mode: bool, max_tokens: int = 1500) -> Agent:
     agent = Agent(
         model,
@@ -176,6 +212,7 @@ def build_agent(model: Model | str, *, client_mode: bool, max_tokens: int = 1500
         categories: list[str] | None = None,
         focus_only: bool | None = None,
         query: str = "",
+        spotlight: str = "none",
     ) -> dict[str, Any]:
         """Counts and names over EVERY match, not a page of them.
 
@@ -187,8 +224,14 @@ def build_agent(model: Model | str, *, client_mode: bool, max_tokens: int = 1500
         brokerage.
 
         Filters are the same as search_projects; leave them all unset to
-        summarise the whole inventory. Returns no project cards -- if the
-        realtor then wants to see them, search.
+        summarise the whole inventory.
+
+        `spotlight` decides which of cheapest/dearest becomes a **card** on the
+        realtor's screen: "cheapest", "dearest", "both", or "none" (default).
+        Both records are returned to you either way -- this only controls what
+        is shown. Set it when the realtor asked to see that project ("the
+        cheapest in Brampton", "what's our priciest"); leave it alone for
+        counts, city lists and builder lists, which produce no cards at all.
         """
         s = await tools.inventory_summary(
             ctx.deps.repo,
@@ -208,12 +251,22 @@ def build_agent(model: Model | str, *, client_mode: bool, max_tokens: int = 1500
         }
         if s.names_truncated:
             out["names_note"] = f"first {len(s.names)} names of {s.total}, alphabetical"
-        # Carded, unlike the counts: naming the cheapest project is showing it,
-        # and the realtor should get the record rather than a price in prose.
+        # Both records always go back to the model; only the CARD is conditional.
+        # This used to card both every time, which meant "how many projects do we
+        # have?" answered "158 across 36 cities" and then showed the realtor the
+        # cheapest and dearest projects underneath -- two cards contradicting an
+        # answer that was not about them. Naming a project is still showing it,
+        # so the exception survives; it just needs the model to say the question
+        # was about that project.
+        show = spotlight.strip().lower()
+        if show not in ("none", "cheapest", "dearest", "both"):
+            show = "none"          # an unknown value shows nothing, never everything
         if s.cheapest is not None:
-            out["cheapest"] = _keep(ctx, [s.cheapest])[0]
+            card = show in ("cheapest", "both")
+            out["cheapest"] = _keep(ctx, [s.cheapest])[0] if card else _for_model(s.cheapest)
         if s.dearest is not None:
-            out["dearest"] = _keep(ctx, [s.dearest])[0]
+            card = show in ("dearest", "both")
+            out["dearest"] = _keep(ctx, [s.dearest])[0] if card else _for_model(s.dearest)
         if s.without_price:
             out["price_caveat"] = (
                 f"{s.without_price} of {s.total} have no readable price and are "
@@ -369,7 +422,7 @@ class PydanticAgentRuntime:
                 # conforming client waiting under a finished answer.
                 usage = result.usage
                 queue.put_nowait(
-                    {"type": "projects", "projects": [_for_model(p) for p in deps.collected]}
+                    {"type": "projects", "projects": [_for_client(p) for p in deps.collected]}
                 )
                 queue.put_nowait(
                     {

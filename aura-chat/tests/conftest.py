@@ -33,7 +33,8 @@ def settings() -> Settings:
 
 @pytest.fixture
 def app(settings):
-    application = create_app()
+    # Explicit settings, so a developer's .env cannot change what a test asserts.
+    application = create_app(settings)
     application.dependency_overrides = {}
     application.state.container = Container(
         settings=settings,

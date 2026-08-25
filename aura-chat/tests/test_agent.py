@@ -205,16 +205,12 @@ async def test_a_failure_while_building_the_cards_still_reports_an_error(monkeyp
         ModelResponse(parts=[ToolCallPart("search_projects", {})]),
         ModelResponse(parts=[TextPart("here you go")]),
     )
-    real = mod._for_model
-    calls = {"n": 0}
-
+    # _for_client is only ever used for the card pass, so failing it leaves the
+    # tool's own return -- which goes through _for_model -- working.
     def explode(p):
-        calls["n"] += 1
-        if calls["n"] > 1:          # let the tool return, fail on the card pass
-            raise TypeError("not serialisable")
-        return real(p)
+        raise TypeError("not serialisable")
 
-    monkeypatch.setattr(mod, "_for_model", explode)
+    monkeypatch.setattr(mod, "_for_client", explode)
     events = await drain(runtime(model), viewed([a_project()]))
     assert events[-1]["type"] == "error"
     assert not any(e["type"] == "done" for e in events)

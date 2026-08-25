@@ -33,6 +33,11 @@ CLIENT_HIDDEN = frozenset(
         "commission",
         "internal_notes",
         "broker_url",
+        # The brokerage's own Drive folder for a project -- collateral, pricing
+        # worksheets, whatever the team keeps in there. Realtor-facing by nature,
+        # and it only became reachable by a buyer when chat cards started carrying
+        # the link columns; before that no card had any link on it at all.
+        "drive_url",
         "status",
     }
 )

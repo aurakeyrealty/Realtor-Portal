@@ -33,7 +33,7 @@ def loaded() -> Project:
         status="Focus", builder_login="agent@builder", builder_office="905-000-0000",
         builder_contact="Rep Name", fub_template="tpl", commission="4%",
         internal_notes="push this one", broker_url="https://portal/x",
-        website_url="https://public/x",
+        drive_url="https://drive/x", website_url="https://public/x",
     )
 
 

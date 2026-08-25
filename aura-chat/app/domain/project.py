@@ -21,6 +21,7 @@ CONFIDENTIAL_FIELDS = frozenset(
         "commission",
         "internal_notes",
         "broker_url",
+        "drive_url",
         "status",
     }
 )
@@ -60,7 +61,8 @@ class Project(BaseModel):
     source_url: str = ""
 
     # links
-    website_url: str = ""
+    website_url: str = ""          # the builder's public site; safe for a buyer
+    # drive_url and broker_url are confidential -- see CONFIDENTIAL_FIELDS
     drive_url: str = ""
     broker_url: str = ""
 
