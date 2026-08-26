@@ -341,6 +341,23 @@ benchmark quietly becomes a description of the bugs.
 <a id="for-sudhanshu"></a>
 ## 9. Client Mode discloses the focus list, and what focus means commercially
 
+**Decision, 2026-08-25: accepted, not fixed before launch.** Sarath's call, made
+with the behaviour in front of him. Going live with it is deliberate, so the
+things that make it survivable have to be said out loud:
+
+* It needs a buyer to ask a pointed commercial question — "do you earn more on
+  some of these?" — while the phone is turned toward them. It does not happen
+  on its own.
+* No sheet value is disclosed. What leaks is the explanation, in the model's
+  own words.
+* **The realtor is the control.** Client Mode was always a safety net rather
+  than a substitute for watching the screen, and this is exactly the gap where
+  that distinction matters. Worth saying to the team at rollout.
+* It is one of the ten acceptance criteria ("confidential Client Mode leaks:
+  0"), so the MVP does not formally clear until it is fixed.
+
+Revisit before the brokerage advertises Client Mode as buyer-safe.
+
 **Severity: High** — it is the one thing Client Mode exists to prevent, and it is
 invisible to the leak test that is supposed to catch it.
 
