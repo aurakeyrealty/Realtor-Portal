@@ -13,6 +13,33 @@ formatting.
 
 ---
 
+## 2026-08-25 — how-it-works.md catches up with what was built
+
+**What.** The end-to-end walkthrough was written at Phase 3 and still said the
+chat screen, conversation storage, audit logging and rate limiting were "not
+built yet". Rewritten against the running service, not from memory: the traced
+timeline in Part IV, the audit line, the stored thread and the
+compare-follow-up ids are all captured from live requests made while writing.
+
+**Two new parts rather than a new document.** Persistence (Part V) and feedback
+(Part VI) are flows of the one system the document promises to walk end to end;
+a separate file would have split "what happens to a question" across two reads.
+Old parts renumbered V→VII through X→XII, and every internal anchor
+re-verified. All 20 mermaid figures parse-checked by actually rendering them.
+
+**The style learned from the later additions.** The clarifications Sarath added
+after first reading (the Deps-lifetime and Project-boundary commit) all have the
+same shape: define the term inline the first time it appears, state lifetimes
+explicitly, one concrete micro-example. New sections are written to that shape
+up front — asyncpg gets a sentence, middleware gets a sentence, EventSource's
+rejection is explained rather than asserted.
+
+**Numbers updated where they had drifted**: 38→103 lines for main.py, 192→343
+tests, four→five tools, 246→162 projects, and the every-file index regenerated
+from the tree rather than patched.
+
+---
+
 ## 2026-08-25 — Hardening, mode, and the 4b surfaces
 
 **What.** AUR-20, 21, 38, 50, 57, 62, and the handoff docs 86/87/89/90/91/92/93.

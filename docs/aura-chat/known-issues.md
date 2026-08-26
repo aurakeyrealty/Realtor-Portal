@@ -25,6 +25,12 @@ ONTARIO roll-up).
 | [6](#6) | The empty link column is sent, the filled one is not | Medium | 38 projects with a website |
 | [7](#7) | Id lookup is case-sensitive | Low | `ak-0002` |
 | [8](#8) | Benchmark expectations count duplicated rows | Medium | the benchmark's own credibility |
+| [9](#9) | Client Mode explains the focus arrangement to a buyer | **High** | any pointed commercial question — *accepted, shipped* |
+| [10](#10) | The card can be a different project from the one the answer names | **High** | any "which is the earliest/largest/nearest" question |
+| [11](#11) | "Could not confirm X" and then states X, in one sentence | Medium | most single-project answers |
+| [12](#12) | Incentives are unsearchable — appliances, development charges, capped DC | Medium | a whole class of realtor questions |
+| [13](#13) | No proximity or landmark search | Low | "near Highway 413", "close to the GO" |
+| [14](#14) | A refused filter blames "the tool" and leaks internals | Medium | any unsupported word in a query |
 
 Data problems that are not code: [§ For Sudhanshu](#for-sudhanshu).
 
@@ -413,6 +419,177 @@ is a request:
 **Also worth deciding:** whether a buyer may see focus projects *at all* without
 the commercial framing. Showing them is arguably fine -- a realtor recommends
 things. Explaining that the brokerage earns more on them is not.
+
+---
+
+<a id="10"></a>
+## 10. The card can be a different project from the one the answer names
+
+**Severity: High.** A realtor reads the card, not the paragraph.
+
+**Symptom.** From Sudhanshu's QA pass:
+
+> **Earliest occupancy?**
+> The earliest occupancy for a freehold project in Pickering is 2026/27 for
+> **Seatonville by Arista Homes**.
+> *[card shown: **New Seaton** · PICKERING · Towerhill Homes · from $627,425]*
+
+The sentence names one project and the card underneath shows another.
+
+**Root cause.** `inventory_summary` decides which record gets a card through its
+`spotlight` argument, and `spotlight` only understands `cheapest`, `dearest`,
+`both` and `none` (`agent_pydantic.py`, the `show not in (...)` guard). There is
+no spotlight for "earliest occupancy", "most bedrooms" or anything else. Asked a
+superlative it cannot spotlight, the model reasons the right answer out of the
+summary text and then asks for the only card it can get — the cheapest.
+
+The prompt already warns about exactly this outcome — *"a card under an answer
+that was not about that project reads as a result, and contradicts you"* — which
+is a request, not a guarantee, and this is what a request buys.
+
+**Reproduce.** Ask for a city summary, then any superlative that is not price:
+"earliest occupancy?", "which has the most bedrooms?".
+
+**The fix I would write.** Two options, in order of preference:
+
+1. Let the model name the record instead of picking from an enum:
+   `spotlight_id: str = ""`. It already has the ids in the summary, so it can
+   point at the one it just named. Unknown id shows no card.
+2. Failing that, refuse the mismatch rather than allow it — drop the card when
+   the answer text does not mention the spotlit project's name. Weaker, because
+   it is a string check on prose.
+
+---
+
+<a id="11"></a>
+## 11. "Could not confirm X" and then states X, in one sentence
+
+**Severity: Medium.** It undermines the one guarantee the system is sold on.
+
+**Symptom.**
+
+> I was **not able to confirm the bedroom count or occupancy date** from current
+> records, but it is listed as **having between 3 and 5 bedrooms**.
+
+...under a card reading `Townhome/Detached · 2026`. So it disclaims the bedroom
+count and the occupancy, then supplies both, and the card supplies them again.
+
+**Root cause, not yet confirmed.** Likely the model treating a partially-filled
+record as unconfirmed — a range rather than a single value, or a `2026/27`
+occupancy rather than a date — and hedging while still reporting what it has.
+The no-invention rule in the prompt says unconfirmed facts must come back as
+"could not confirm"; nothing says what to do with a fact that *is* there but is
+imprecise, so the model does both.
+
+**Why it matters more than it reads.** "Could not confirm from current records"
+is the sentence that makes Aura trustworthy. Spending it on a fact that is
+present teaches realtors to ignore it, and then it fails to protect them on the
+day it is real.
+
+**Reproduce.** Ask about any project whose bedrooms are a range: "Detached homes
+under $1M in Brampton".
+
+**The fix I would write.** Decide what an imprecise-but-present value is, once,
+and say so in the prompt: a range *is* a confirmed value; only an empty field is
+unconfirmed. Then check the wording holds on the benchmark's single-project
+questions.
+
+---
+
+<a id="12"></a>
+## 12. Incentives are unsearchable — appliances, development charges, capped DC
+
+**Severity: Medium.** Reported by Sudhanshu, who owns the column.
+
+**Symptom.** All three of these come back empty:
+
+> **Projects with appliances included.** → could not confirm any…
+> **Projects with capped development charges.** → could not confirm any…
+> **What are the development charges of Spring Valley Village** → could not confirm…
+
+**and the data is there.** Sudhanshu's note: *"This info is stored in Incentives
+(if applicable)"*. Aura even quotes it happily when it has the project in hand —
+*"$10,000 to spend at the decor centre, plus central air and five appliances"* —
+it simply cannot search on it.
+
+**Root cause.** `ProjectFilters` has no incentive field, so `search_projects`
+cannot filter on it and `inventory_summary` cannot count on it. `incentives`
+reaches the model only as free text on a record it already found by other means.
+Asked directly, the model says so: *"I can only search for projects based on
+location, price, type, or builder, not by incentives."*
+
+**Reproduce.** Any of the three questions above.
+
+**The fix I would write.** Add `incentive_contains: str = ""` to
+`ProjectFilters` and match it case-insensitively against the incentives text in
+`matches`, the same way `query` already works over name and builder. It is a
+substring search over a free-text column, so it will be imperfect — "appliances"
+will miss "5 appl." — which is an argument for tidying the column, not against
+the filter.
+
+---
+
+<a id="13"></a>
+## 13. No proximity or landmark search
+
+**Severity: Low.** A capability gap, not a defect.
+
+**Symptom.**
+
+> **Projects close to Highway 413.** → could not confirm any projects near
+> Highway 413 from current records
+
+Sudhanshu's note: *"If we can search according to nearby address as highways
+nearby Brampton or Pickering likewise which cities we are looking at"*.
+
+**Root cause.** There is nothing to search. The sheet carries a city and an
+address; it carries no coordinates, no highway, no transit and no distance. Aura
+has no map and no internet.
+
+**The fix I would write.** Not a code fix first. The cheap version is a
+`LANDMARKS` or `NEAR` column the team fills in ("Hwy 413, Hwy 410, Mount Pleasant
+GO"), searchable the same way [12](#12) proposes. Real proximity needs
+geocoding, which is a different project.
+
+---
+
+<a id="14"></a>
+## 14. A refused filter blames "the tool" and leaks internals
+
+**Severity: Medium.** It reads as broken software rather than a missing feature.
+
+**Symptom.**
+
+> **Freehold townhomes under $800K?**
+> I'm sorry, I cannot fulfill that request. **The tool does not accept
+> "freehold" as a valid parameter.**
+>
+> **townhomes under $800K?**
+> I'm sorry, I cannot fulfill that request. The tool does not accept
+> "townhomes" as a valid parameter for the inventory summary.
+
+Two problems in two lines. It says *"the tool"* and *"parameter"* to a realtor,
+and it refuses a question it can answer — the same session later handled
+*"Freehold only."* correctly, and "townhomes" is a plural of a category that
+exists.
+
+**Root cause.** Sibling of [3](#3): the four categories are an undeclared
+convention rather than an enum on the tool, so the model has to guess whether a
+word qualifies, and guesses inconsistently. The wording is the prompt's silence
+on how to refuse — nothing tells it to answer as a colleague rather than as an
+API.
+
+**Reproduce.** "Freehold townhomes under $800K?" as a first question, with no
+prior context.
+
+**The fix I would write.**
+
+* Declare the categories as a `Literal["detached","semi","townhome","condo"]` on
+  the tool so the schema carries them and plurals normalise (see also [3](#3)).
+* Map the tenure words realtors actually use — freehold, condo, POTL — to what
+  the sheet holds, or say plainly that tenure is not recorded.
+* Add one prompt line: never name a tool, a parameter or a field. Say what is
+  not recorded and offer the nearest question that is.
 
 ---
 

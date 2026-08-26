@@ -52,7 +52,7 @@ dependencies. Data lives in three Google Sheets, read through `Sheets.js`.
 | `dev/*.mjs` | Local harness, PWA build, deploy, pre-push verification (Node, ESM) |
 | `assets/` | Icons and gate artwork consumed by the build |
 | `www/`, `.netlify/` | **Generated. Gitignored. Never edit** |
-| `aura-chat/` | Separate Python 3.12 / FastAPI service (in progress) — see §7 |
+| `aura-chat/` | Separate Python 3.12 / FastAPI service (live in production) — see §7 |
 | `docs/worklog.md` | **Why** things are the way they are. Append on every substantive change — see §7 |
 | `docs/` | Architecture decisions and investigations |
 | `design_handoff_aura_key/` | Design references (HTML prototypes), not production code |

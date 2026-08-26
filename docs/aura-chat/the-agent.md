@@ -197,8 +197,9 @@ What the library gives us, and what we actually use:
 
 Two deliberate omissions worth naming. We do not use a structured output type,
 because the answer is prose for a human and the *numbers* travel separately as
-cards. And we do not use its history store, because Phase 4 will own
-conversations in our own database.
+cards. And we do not use its history store, because we own conversations in our
+own database — Postgres, via the `ConversationStore` port
+([how-it-works.md Part V](how-it-works.md#part-v--the-conversation-is-remembered)).
 
 ---
 
