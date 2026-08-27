@@ -175,6 +175,16 @@ async def test_get_ignores_id_case():
     assert found is not None and found.id == "AK-0002"
 
 
+async def test_get_prefers_the_exact_id_over_a_case_variant():
+    """Two rows whose ids differ only by case must not shadow each other for a
+    caller who typed the id exactly."""
+    portal = StubPortal(
+        [row(id="ak-0002", project="Slugged"), row(id="AK-0002", project="Explicit")]
+    )
+    found = await repo(portal).get("AK-0002", auth=AUTH)
+    assert found is not None and found.name == "Explicit"
+
+
 async def test_recent_says_nothing_when_the_column_is_unfilled():
     """An empty answer is correct here. Falling back to cache timestamps would
     invent a freshness the sheet never claimed."""

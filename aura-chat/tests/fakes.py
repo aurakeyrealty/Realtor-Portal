@@ -79,6 +79,9 @@ class FakeProjectRepo:
         )
 
     async def get(self, project_id: str, *, auth: str) -> Project | None:
+        exact = next((p for p in self.projects if p.id == project_id), None)
+        if exact is not None:
+            return exact
         wanted = project_id.casefold()
         return next((p for p in self.projects if p.id.casefold() == wanted), None)
 

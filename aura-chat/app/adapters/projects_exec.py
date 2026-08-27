@@ -126,6 +126,12 @@ class ExecApiProjectRepo:
         rows = await self._index(auth)
         # Unavailable projects are reachable by id on purpose: search hides them,
         # but "what happened to X?" still needs an answer.
+        # Exact match first: once PROJECT IDs are hand-filled, two rows could
+        # differ only by case, and the casefolded fallback must not shadow the
+        # id the caller actually typed.
+        exact = next((p for p in rows if p.id == project_id), None)
+        if exact is not None:
+            return exact
         wanted = project_id.casefold()
         return next((p for p in rows if p.id.casefold() == wanted), None)
 
