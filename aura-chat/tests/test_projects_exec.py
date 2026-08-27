@@ -149,6 +149,32 @@ async def test_recent_returns_the_most_recently_updated_first():
     assert [p.id for p in out] == ["new", "old"]
 
 
+async def test_recent_excludes_future_dates_and_counts_them():
+    """A date after today is a typo, not a change. Without the bound the
+    descending sort ranks it first, every week, until it arrives."""
+    from datetime import date, timedelta
+
+    portal = StubPortal(
+        [
+            row(id="now", project="Now", lastupdated=date.today().isoformat()),
+            row(
+                id="typo",
+                project="Typo",
+                lastupdated=(date.today() + timedelta(days=60)).isoformat(),
+            ),
+        ]
+    )
+    r = repo(portal)
+    assert [p.id for p in await r.recent(7, auth=AUTH)] == ["now"]
+    assert r.future_dated == 1
+
+
+async def test_get_ignores_id_case():
+    portal = StubPortal([row(id="AK-0002", project="Cornerstone")])
+    found = await repo(portal).get("ak-0002", auth=AUTH)
+    assert found is not None and found.id == "AK-0002"
+
+
 async def test_recent_says_nothing_when_the_column_is_unfilled():
     """An empty answer is correct here. Falling back to cache timestamps would
     invent a freshness the sheet never claimed."""

@@ -13,6 +13,50 @@ formatting.
 
 ---
 
+## 2026-08-27 — four known issues fixed: dates, future dates, website_url, id case
+
+Known-issues #1, #2, #6, #7 — the quick high-severity batch. Entries deleted
+from known-issues.md per its own rule; the reasons live here.
+
+**Dates read month-first, day-first kept as a provable fallback (#1).**
+`_DATE_FORMATS` tried `%d/%m/%Y` before `%m/%d/%Y`, so every ambiguous slash
+date (day 1–12) parsed day-first — 10 of the 23 dated projects were wrong, and
+the misreads landed in the future, which is what stuffed "what changed this
+week" with April projects. The sheet is typed month-first. Rejected the
+known-issues proposal to *delete* day-first entirely: after the reorder,
+`%d/%m/%Y` can only match a value month-first cannot parse (first number
+13–31), which is exactly the case where day-first is provable — so keeping it
+costs nothing in ambiguity and survives a stray day-first entry. `09/31/2025`
+(Arbor West) still parses as nothing, correctly. The docstring's claim that the
+value is "only ever shown, never used to decide" was stale — `recent()` sorts
+on it — and is rewritten.
+
+**Future dates excluded from recent(), counted for /doctor (#2).** A date after
+today now cannot rank first in "what changed this week" — it is excluded at
+query time (a cached future date legitimately becomes past) and counted at
+index time as `future_dated`, surfaced in the `data_quality` check next to
+unparsed prices, flipping it to not-ok. Counted rather than silently dropped:
+dropping trades a wrong answer for a missing one. Harvest Park (`10/25/2026`)
+stays wrong in the sheet — that row is Sudhanshu's.
+
+**The model now sees website_url (#6).** `_for_model` sent `source` (empty on
+all 161 rows) and none of the three filled link columns, so "which projects
+have a website I can send a client?" was unanswerable. `website_url` is added —
+it is deliberately in neither CLIENT_HIDDEN nor CONFIDENTIAL_FIELDS, so no
+redaction change. Decided with Sarath: `drive_url` stays model-invisible. It is
+internal material; the card payload already carries it for realtors, and
+keeping it out of the model's context means it cannot be quoted into prose in
+front of a buyer.
+
+**Id lookup casefolds (#7).** `repo.get("ak-0002")` now finds `AK-0002`; the
+fake mirrors the adapter so the contract stays one contract.
+
+Not touched, deliberately: benchmark expectations (#8 says fix those last, after
+behaviour), and `test_recent_returns_the_most_recently_updated_first`, which
+hard-codes 2026 dates and will rot in 2027 — off this change's path.
+
+---
+
 ## 2026-08-25 — how-it-works.md catches up with what was built
 
 **What.** The end-to-end walkthrough was written at Phase 3 and still said the

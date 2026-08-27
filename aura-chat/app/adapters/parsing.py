@@ -122,8 +122,9 @@ def parse_min_bedrooms(raw: object) -> int | None:
 
 _DATE_FORMATS = (
     "%Y-%m-%d",  # ISO, the format we asked for
-    "%d/%m/%Y",
-    "%m/%d/%Y",
+    "%m/%d/%Y",  # the sheet's convention
+    "%d/%m/%Y",  # only reachable when day > 12 -- unambiguously day-first
+    "%m-%d-%Y",
     "%d-%m-%Y",
     "%b %d, %Y",
     "%d %b %Y",
@@ -134,11 +135,12 @@ _DATE_FORMATS = (
 def parse_date(raw: object) -> date | None:
     """A last-updated cell to a date.
 
-    Ambiguous day/month order is a real risk here: 03/04/2026 is two different
-    dates depending on who typed it. Both orders are attempted and the first
-    that parses wins, which is a coin flip for days 1-12 -- so this value is
-    only ever shown to a realtor, never used to decide which of two documents
-    is current. That decision belongs to IsCurrent (AUR-30).
+    03/04/2026 is two different dates depending on who typed it, and the sheet
+    is typed month-first -- so month-first is tried first and always wins the
+    ambiguous case. The day-first formats after it can only match a value
+    month-first cannot parse (first number 13-31), which is exactly the case
+    where day-first is provable. recent() sorts on this value, so getting the
+    order wrong puts stale projects at the top of "what changed this week".
     """
     if _is_blank(raw):
         return None

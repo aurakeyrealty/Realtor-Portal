@@ -101,9 +101,21 @@ def test_written_dates(raw, want):
     assert parse_date(raw) == want
 
 
+def test_ambiguous_slash_dates_read_month_first():
+    """The sheet is typed month-first. 12/04/2026 is December 4, not April 12."""
+    assert parse_date("12/04/2026") == date(2026, 12, 4)
+
+
+def test_unambiguous_day_first_dates_still_parse():
+    """25/12/2026 cannot be month-first, so day-first is provable."""
+    assert parse_date("25/12/2026") == date(2026, 12, 25)
+
+
 def test_unparseable_dates_are_none():
     assert parse_date("last week") is None
     assert parse_date("") is None
+    # September has 30 days; a coin flip must not turn a typo into a date.
+    assert parse_date("09/31/2025") is None
 
 
 def test_slug_is_stable_for_the_same_project():

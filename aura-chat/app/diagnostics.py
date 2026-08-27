@@ -224,6 +224,7 @@ def data_quality(c: Container) -> Check:
     total = getattr(repo, "total_rows", 0)
     unparsed = getattr(repo, "unparsed_prices", 0)
     rollup = getattr(repo, "skipped_rollup_rows", 0)
+    future = getattr(repo, "future_dated", 0)
     if not total:
         return Check("data_quality", None, "no projects read yet", critical=False)
     detail = f"{total} projects"
@@ -231,4 +232,6 @@ def data_quality(c: Container) -> Check:
         detail += f", {unparsed} with a price the parser could not read"
     if rollup:
         detail += f", {rollup} roll-up rows skipped"
-    return Check("data_quality", unparsed == 0, detail, critical=False)
+    if future:
+        detail += f", {future} dated in the future"
+    return Check("data_quality", unparsed == 0 and future == 0, detail, critical=False)

@@ -68,6 +68,7 @@ def _for_model(p: Project) -> dict[str, Any]:
         "address": p.address,
         "last_updated": p.last_updated.isoformat() if p.last_updated else None,
         "source": p.source_url,
+        "website_url": p.website_url,
     }
     out.update({k: v for k, v in optional.items() if v not in ("", None)})
     return out

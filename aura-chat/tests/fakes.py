@@ -79,7 +79,8 @@ class FakeProjectRepo:
         )
 
     async def get(self, project_id: str, *, auth: str) -> Project | None:
-        return next((p for p in self.projects if p.id == project_id), None)
+        wanted = project_id.casefold()
+        return next((p for p in self.projects if p.id.casefold() == wanted), None)
 
     async def recent(self, days: int, *, auth: str, limit: int = 20) -> list[Project]:
         return self.projects[:limit]

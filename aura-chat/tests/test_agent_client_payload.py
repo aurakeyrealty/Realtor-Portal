@@ -32,13 +32,22 @@ FULL = Project(
 
 
 def test_carries_the_links_the_model_payload_drops():
-    """The whole reason this function exists. _for_model sends `source`, which
-    is empty on every row in the sheet, and none of these three."""
+    """The whole reason this function exists. _for_model carries website_url --
+    the builder's public site, safe for a buyer -- and neither of the other
+    two; the card is where those belong."""
     out = _for_client(FULL)
     assert out["website_url"] == "https://duo.example"
     assert out["drive_url"] == "https://drive.example/duo"
     assert out["broker_url"] == "https://broker.example/duo"
-    assert "website_url" not in _for_model(FULL)
+    model = _for_model(FULL)
+    assert model["website_url"] == "https://duo.example"
+    assert "drive_url" not in model
+    assert "broker_url" not in model
+
+
+def test_model_payload_omits_an_empty_website():
+    """An empty string is not a link; the key must not appear at all."""
+    assert "website_url" not in _for_model(Project(name="X", city="Y"))
 
 
 def test_field_names_are_the_portals_not_the_domains():

@@ -89,6 +89,10 @@ class ExecApiProjectRepo:
         # of thing a future reader deletes as dead code unless the number is
         # visible somewhere.
         self.skipped_rollup_rows = 0
+        # A date after today is a typo, and recent() excludes it rather than
+        # ranking it first. Counted so /doctor names the problem instead of the
+        # answer just quietly missing a project.
+        self.future_dated = 0
 
     # -- port ----------------------------------------------------------------
 
@@ -122,18 +126,28 @@ class ExecApiProjectRepo:
         rows = await self._index(auth)
         # Unavailable projects are reachable by id on purpose: search hides them,
         # but "what happened to X?" still needs an answer.
-        return next((p for p in rows if p.id == project_id), None)
+        wanted = project_id.casefold()
+        return next((p for p in rows if p.id.casefold() == wanted), None)
 
     async def recent(self, days: int, *, auth: str, limit: int = 20) -> list[Project]:
         rows = await self._index(auth)
-        dated = [p for p in rows if p.last_updated is not None and p.is_available]
+        today = date.today()
+        # A date after today is a typo, not a change -- without this bound the
+        # descending sort would rank it first, every week, until it arrives.
+        # Excluded at query time, not index time: a cached future date
+        # legitimately becomes past.
+        dated = [
+            p
+            for p in rows
+            if p.last_updated is not None and p.is_available and p.last_updated <= today
+        ]
         dated.sort(key=lambda p: p.last_updated, reverse=True)
         # Anchored to today, deliberately. Measuring from the newest row instead
         # would mean a sheet nobody has touched for six weeks still reports its
         # newest projects as "what changed this week" -- freshness the sheet
         # never claimed -- and would make an empty result impossible, so
         # "nothing changed recently" could never be answered.
-        cutoff = date.today().toordinal() - days
+        cutoff = today.toordinal() - days
         return [p for p in dated if p.last_updated.toordinal() >= cutoff][:limit]
 
     async def refresh(self, *, auth: str) -> int:
@@ -201,6 +215,10 @@ class ExecApiProjectRepo:
         self.unparsed_prices = unparsed
         self.total_rows = len(parsed)
         self.skipped_rollup_rows = rollup
+        today = date.today()
+        self.future_dated = sum(
+            1 for p in parsed if p.last_updated is not None and p.last_updated > today
+        )
         return parsed
 
     # -- mapping: the containment boundary ------------------------------------

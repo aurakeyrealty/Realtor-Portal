@@ -188,6 +188,29 @@ def test_doctor_reports_unreadable_prices(app):
     assert q["critical"] is False
 
 
+def test_doctor_reports_future_dated_projects(app):
+    """A date after today is a typo recent() now excludes. Dropping it silently
+    would trade a wrong answer for a missing one; /doctor names the count."""
+
+    class Repo:
+        total_rows, unparsed_prices, future_dated = 161, 0, 1
+
+        async def search(self, f, *, auth):
+            return []
+
+        async def refresh(self, *, auth):
+            return 0
+
+    app.state.container.projects = Repo()
+    with TestClient(app) as client:
+        body = client.get(
+            "/doctor", headers={"Authorization": f"Bearer {make_token('sarath')}"}
+        ).json()
+    q = body["checks"]["data_quality"]
+    assert q["ok"] is False and "1 dated in the future" in q["detail"]
+    assert q["critical"] is False
+
+
 def test_unreadable_prices_degrade_rather_than_down(app):
     class Repo:
         total_rows, unparsed_prices = 40, 3
