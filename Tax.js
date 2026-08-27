@@ -48,6 +48,9 @@ function ptNum_(v) {
   var n = parseFloat(String(v).replace(/[^0-9.\-]/g, ''));
   return isFinite(n) ? n : null;
 }
+/* The sheet's yes/no columns are hand-typed: 'Y' here, 'YES' two columns over.
+   Anything starting with Y counts, so a 'Yes' does not silently drop the row. */
+function ptYes_(v) { return ptStr_(v).toUpperCase().indexOf('Y') === 0; }
 function ptDate_(v) {
   if (v instanceof Date) return Utilities.formatDate(v, Session.getScriptTimeZone(), 'yyyy-MM-dd');
   return ptStr_(v);
@@ -60,6 +63,17 @@ function buildTaxRates_() {
   if (!act || act.getLastRow() < 2) return { ok: false, error: 'Tab "' + PT_TAB_ACTIVE + '" is missing or empty.', count: 0, rows: [] };
   var av = act.getDataRange().getDisplayValues(), ac = ptCols_(av[0]);
 
+  /* The served keys, collected first so the history read below can skip
+     everything else: that tab is append-only and grows by hundreds of rows a
+     year, while this lookup only ever wants the default-area rows' year. */
+  var need = {};
+  for (var k = 1; k < av.length; k++) {
+    var km = ptStr_(ptG_(av[k], ac, 'municipality'));
+    if (!km || !ptYes_(ptG_(av[k], ac, 'isdefaultarea'))) continue;
+    var ky = ptNum_(ptG_(av[k], ac, 'effectiveyear'));
+    need[km + '|' + ptStr_(ptG_(av[k], ac, 'ratearea')) + '|' + (ky == null ? '' : String(ky))] = 1;
+  }
+
   /* The component split and the source link live on the history tab, joined on
      municipality | rate area | effective year. One extra read, and only for the
      year actually being served. */
@@ -69,7 +83,9 @@ function buildTaxRates_() {
     for (var h = 1; h < hv.length; h++) {
       var hm = ptStr_(ptG_(hv[h], hc, 'municipality'));
       if (!hm) continue;
-      comp[hm + '|' + ptStr_(ptG_(hv[h], hc, 'ratearea')) + '|' + ptStr_(ptG_(hv[h], hc, 'taxyear'))] = {
+      var hk = hm + '|' + ptStr_(ptG_(hv[h], hc, 'ratearea')) + '|' + ptStr_(ptG_(hv[h], hc, 'taxyear'));
+      if (!need[hk]) continue;
+      comp[hk] = {
         munRate: ptNum_(ptG_(hv[h], hc, 'municipalrate')),
         utRate: ptNum_(ptG_(hv[h], hc, 'uppertierrate')),
         edu: ptNum_(ptG_(hv[h], hc, 'educationrate')),
@@ -88,7 +104,7 @@ function buildTaxRates_() {
     /* The phone shows one rate per city. Hamilton's 24 service areas, Chatham-Kent's
        18 and Kawartha Lakes' 17 are real, but a realtor standing in a kitchen wants
        the number, not a menu — the default area is flagged in the sheet. */
-    if (ptStr_(ptG_(r, ac, 'isdefaultarea')).toUpperCase() !== 'Y') continue;
+    if (!ptYes_(ptG_(r, ac, 'isdefaultarea'))) continue;
     var area = ptStr_(ptG_(r, ac, 'ratearea')), year = ptNum_(ptG_(r, ac, 'effectiveyear'));
     var rate = ptNum_(ptG_(r, ac, 'effectivetotalrate'));
     var c = comp[mun + '|' + area + '|' + (year == null ? '' : String(year))] || {};
@@ -97,9 +113,9 @@ function buildTaxRates_() {
       r26: ptNum_(ptG_(r, ac, 'rate2026')), r25: ptNum_(ptG_(r, ac, 'rate2025')),
       year: year, rate: rate,
       per1m: rate == null ? null : Math.round(rate * 10000),
-      fallback: ptStr_(ptG_(r, ac, 'fallbackused')).toUpperCase() === 'YES',
+      fallback: ptYes_(ptG_(r, ac, 'fallbackused')),
       status: ptStr_(ptG_(r, ac, 'sourcestatus')) || 'PENDING',
-      quotable: ptStr_(ptG_(r, ac, 'quotable')).toUpperCase().indexOf('YES') === 0,
+      quotable: ptYes_(ptG_(r, ac, 'quotable')),
       munRate: c.munRate == null ? null : c.munRate,
       utRate: c.utRate == null ? null : c.utRate,
       edu: c.edu == null ? null : c.edu,

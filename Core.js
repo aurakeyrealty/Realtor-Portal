@@ -104,8 +104,7 @@ var ALLOW = {
     'MILTON', 'MISSISSAUGA', 'MARKHAM', 'NEWMARKET', 'OAKVILLE', 'ORANGEVILLE',
     'OSHAWA', 'OTTAWA', 'PARIS', 'PICKERING', 'RICHMOND HILL', 'SCARBOROUGH',
     'STAYNER', 'STOUFFVILLE', 'WELLAND', 'VAUGHAN', 'WHITBY', 'WOODSTOCK',
-    'CALGARY', 'DUBAI',
-    'Property Tax Rates', 'Active Rates'
+    'CALGARY', 'DUBAI'
   ],
   deals: ['Active Listings', 'Websites'],
   onboarding: []
@@ -214,7 +213,10 @@ function cachedBuild_(key, build, ttl) {
   }
   try {
     var built = build();
-    cachePut_(key, built, ttl);
+    /* An error payload must not be cached: a tab renamed for a minute during a
+       rebuild would otherwise serve "tab missing" for the full TTL after the
+       sheet is back. Let the next caller rebuild. */
+    if (!(built && built.ok === false)) cachePut_(key, built, ttl);
     return built;
   } finally { if (lock) { try { lock.releaseLock(); } catch (e) {} } }
 }

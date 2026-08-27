@@ -13,6 +13,45 @@ formatting.
 
 ---
 
+## 2026-08-27 — property tax rates reviewed and repaired after landing unlogged
+
+Sudhanshu pushed the property-tax feature (Tax.js, a `taxrates` action, the
+Property Tax screen and live Home Expenses rates) under commit messages that
+described none of it — one said "Update print statement from 'Hello' to
+'Goodbye'" and actually appended a byte-identical second copy of the entire
+client script. This entry stands in for the worklog entry that change should
+have carried, plus the review fixes.
+
+**The feature's decisions, as found in the code and kept:** one rate per city —
+the sheet's default-area flag collapses Hamilton's 24 areas to one; where no
+2026 rate exists the 2025 one is served and labelled; the 45-municipality table
+inside AKX stays as the offline fallback and the payload *corrects* it rather
+than replacing it. Bootcamp was also hidden from the drawer (`off:1`) in the
+same push — deliberate mothballing per the comment, kept.
+
+**Review fixes (behavior preserved, defects removed):**
+- The duplicated 3,225-line script block is deleted. Both copies executed:
+  two login POSTs per Sign-In tap, double `route()` per navigation.
+- `'Property Tax Rates', 'Active Rates'` removed from `ALLOW.main`. The feature
+  never consulted ALLOW (Tax.js reads its tabs directly); the entries only let
+  any realtor token pull the raw sheets — every rate area and editorial column —
+  through the generic `tab` action, bypassing `buildTaxRates_`'s curation.
+- `cachedBuild_` no longer caches an `ok:false` payload: a tab renamed for a
+  minute during warm-up used to pin "tab missing" for the full 6h TTL. The
+  Property Tax error screen also gained a Retry (it had no fresh-path out).
+- `applyLiveRates` no longer stamps a missing upper-tier split as `0` — that
+  read as a known figure and dropped the whole regional share (Whitby computed
+  ~0.713% instead of ~1.413%). Null now falls through to the shared constants.
+  Workbook-only cities with no combined rate stay out of the expenses picker
+  for the same reason: their computed rate was `0 + 0 + education`.
+- The sheet's yes/no columns are matched on leading Y (`ptYes_`) instead of
+  three different exact spellings; the GTA tab compares municipality names with
+  case and punctuation stripped. Both were silent row-droppers.
+- The history tab is filtered to the served default-area keys before indexing —
+  it is append-only and grows by hundreds of rows a year for a ~50-key join.
+- `pageCount` returns the text it builds; the Property Tax count line was
+  rendering the literal string "undefined".
+
 ## 2026-08-27 — four known issues fixed: dates, future dates, website_url, id case
 
 Known-issues #1, #2, #6, #7 — the quick high-severity batch. Entries deleted
