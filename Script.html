@@ -14,18 +14,19 @@ var NAV=[
   {v:'tenants',    t:'LTB',             ic:'M4 4h16v16H4zM8 9h8M8 13h8M8 17h5'},
   {v:'basement',   t:'Basement Check',  ic:'M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z'},
   {v:'expenses',   t:'Home Expenses',   ic:'M4 4h16v16H4zM8 8h8M8 12h4'},
+  {v:'propertytax',t:'Property Tax',    ic:'M4 4h16v16H4zM8 8h8M8 12h8M8 16h5'},
   {g:'Team'},
   {v:'callnight',  t:'Call Night',      ic:'M4 4h4l2 5-3 2a12 12 0 0 0 6 6l2-3 5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 2 6a2 2 0 0 1 2-2z'},
   {v:'leaderboard',t:'Leaderboard',     ic:'M6 21V10M12 21V4M18 21v-7'},
   {v:'resources',  t:'Resources',       ic:'M4 5h16v14H4zM4 9h16M9 5v14'},
   {v:'mydeals',    t:'My Deals',        ic:'M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6'},
-  {v:'onboarding', t:'Bootcamp',        ic:'M12 2l3 6 6 .9-4.5 4.3 1 6.3L12 16.8 6.5 19.5l1-6.3L3 8.9 9 8z'},
+  {v:'onboarding', t:'Bootcamp',        ic:'M12 2l3 6 6 .9-4.5 4.3 1 6.3L12 16.8 6.5 19.5l1-6.3L3 8.9 9 8z', off:1},
   {v:'vacations',  t:'Vacation Tracker',ic:'M2 22l20-8-8-8-4 4-8 4zM11 10l3 3'},
   {v:'websites',   t:'Websites',        ic:'M2 12h20M12 2a15 15 0 0 1 0 20M12 2a15 15 0 0 0 0 20'},
   {v:'reports',    t:'Aura Reports',    ic:'M4 4h16v16H4zM8 9h8M8 13h5M8 17h3', admin:1},
   {v:'faqs',       t:'FAQs',            ic:'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zM9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.8.4-1 .8-1 1.7M12 17h.01'}
 ];
-var SUB={home:'Your team hub, contacts and events.',cities:'Projects and builders by city.',listings:'Current active listings.',builders:'Builder reps and projects.',contractors:'Trusted concierge contacts.',schools:'Rankings by school.',findschool:'Find the school for an address.',crime:'Crime records by city.',tenants:'Search LTB orders.',basement:"Check a city's registration record.",expenses:'Estimate monthly carrying costs.',callnight:'Call-night attendance.',leaderboard:'Team call leaderboard.',resources:'Guides and tools.',mydeals:'Your deals and follow-ups.',onboarding:'The onboarding bootcamp.',vacations:'Who is away and when.',websites:'Handy website links.',faqs:'Common questions.',reports:'What realtors reported about Aura\u2019s answers.'};
+var SUB={home:'Your team hub, contacts and events.',cities:'Projects and builders by city.',listings:'Current active listings.',builders:'Builder reps and projects.',contractors:'Trusted concierge contacts.',schools:'Rankings by school.',findschool:'Find the school for an address.',crime:'Crime records by city.',tenants:'Search LTB orders.',basement:"Check a city's registration record.",expenses:'Estimate monthly carrying costs.',propertytax:'Residential tax rates by city.',callnight:'Call-night attendance.',leaderboard:'Team call leaderboard.',resources:'Guides and tools.',mydeals:'Your deals and follow-ups.',onboarding:'The onboarding bootcamp.',vacations:'Who is away and when.',websites:'Handy website links.',faqs:'Common questions.',reports:'What realtors reported about Aura\u2019s answers.'};
 
 var ICO={star:'M12 2l3 6 6 .9-4.5 4.3 1 6.3L12 16.8 6.5 19.5l1-6.3L3 8.9 9 8z',back:'M19 12H5M12 19l-7-7 7-7',chev:'M9 18l6-6-6-6',x:'M18 6L6 18M6 6l12 12'};
 function ico(name,sz){ sz=sz||15; return '<svg width="'+sz+'" height="'+sz+'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;flex:none"><path d="'+ICO[name]+'"/></svg>'; }
@@ -215,7 +216,10 @@ function skel(n){
   for(var i=0;i<(n||3);i++) h+=one; return h;
 }
 function buildNav(){
-  $('navlist').innerHTML=NAV.filter(function(n){ return !n.admin||AURA_ADMIN; }).map(function(n){
+  /* `off` hides a screen from the menu without unbuilding it: the entry, the
+     loader, the route and the screen itself all stay, so deleting the flag
+     puts it straight back. */
+  $('navlist').innerHTML=NAV.filter(function(n){ return !n.off&&(!n.admin||AURA_ADMIN); }).map(function(n){
     if(n.g) return '<div class="dr-grp">'+esc(n.g)+'</div>';
     return '<button class="dr-item'+(n.sub?' sub':'')+'" data-v="'+n.v+'"><svg class="dr-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="'+n.ic+'"/></svg>'+esc(n.t)+'</button>';
   }).join('');
@@ -225,7 +229,7 @@ function openDrawer(){$('drawer').classList.add('on');$('scrim').classList.add('
 function closeDrawer(){$('drawer').classList.remove('on');$('scrim').classList.remove('on');}
 
 var LOAD={home:loadHome,cities:loadCities,city:loadCityDetail,listings:loadListings,builders:loadBuilders,contractors:loadContractors,
-  schools:loadSchools,findschool:loadFindSchool,crime:loadCrime,tenants:loadLTB,basement:loadBasement,expenses:loadExpenses,
+  schools:loadSchools,findschool:loadFindSchool,crime:loadCrime,tenants:loadLTB,basement:loadBasement,expenses:loadExpenses,propertytax:loadPropertyTax,
   callnight:loadCallnight,leaderboard:loadLeaderboard,resources:loadResources,
   mydeals:loadMyDeals,onboarding:loadBootcamp,vacations:loadVacations,websites:loadWebsites,faqs:loadFaqs};
 function go(v,arg){
@@ -863,18 +867,131 @@ function runLTB(){
   }).catch(fail);
 }
 
+/* How to verify a second unit, city by city. Reference text rather than data, so
+   it sits here beside the screen that shows it: the backend already says whether
+   a registry exists, and this says what to actually do about it. A city missing
+   from here simply shows no panel. */
+var BC_HOW={
+  brampton:{name:'Brampton',status:'Live ARU registry',
+    steps:['Search the address in the Registered Additional Residential Units map.','Confirm whether it is a two-unit, three-unit or garden suite.','Save the registry result for the file.'],
+    dept:'Building Division',phone:'905-874-2401',email:'twounit.zoning@brampton.ca',
+    src:'Brampton Registered Additional Residential Units Registry',
+    url:'https://www.brampton.ca/EN/residents/Building-Permits/second-dwelling/Pages/Registered-Additional-Residential-Units.aspx',urlT:'Open the registry'},
+  oshawa:{name:'Oshawa',status:'Live two-unit registry',
+    steps:['Search the Registered Two Unit Apartments dataset.','Match the address exactly.','Save the registration information for the file.'],
+    dept:'Service Oshawa',phone:'905-436-3311',email:'service@oshawa.ca',
+    src:'Oshawa Registered Two Unit Apartments open data',
+    url:'https://city-oshawa.opendata.arcgis.com/datasets/97d92126eeae4430885d6225df0ff2a0/explore',urlT:'Open the dataset'},
+  mississauga:{name:'Mississauga',status:'Registry list, then municipal confirmation',
+    steps:['Search the Second Units Registry List PDF.','If the address is not in the list, contact the City.','Confirm the registration or building permit status.'],
+    dept:'Second Unit Registration',phone:'311 / 905-615-4311',email:'secondunits@mississauga.ca',
+    src:'Mississauga Second Units Registry List',
+    url:'https://www.mississauga.ca/publication/second-units-registry-list/',urlT:'Open the list'},
+  toronto:{name:'Toronto',status:'Manual permit verification',
+    steps:['Search Toronto Building permits.','Check for secondary suite or basement apartment permits.','Request a building record confirmation.'],
+    dept:'Toronto Building',phone:'416-338-5600',email:'buildingpermits@toronto.ca',src:'Toronto building permit records'},
+  vaughan:{name:'Vaughan',status:'Manual verification',
+    steps:['Search the building permit records.','Check for secondary suite or ADU approvals.','Contact Building Standards if anything is unclear.'],
+    dept:'Building Standards',phone:'905-832-8510',email:'buildingstandards@vaughan.ca',src:'Vaughan secondary suites / ADU information'},
+  barrie:{name:'Barrie',status:'Manual verification plus a permit records request',
+    steps:['Open the Barrie APLI portal and search the property address.','Check for secondary suite, basement apartment, additional residential unit and interior alteration permits, and their final inspections.','If it is still unclear, request the Building Permit Records or a Building Compliance Letter from the City.'],
+    dept:'Building Services / Service Barrie',phone:'705-739-4242',email:'ServiceBarrie@barrie.ca',
+    src:'Barrie APLI portal \u2014 applications, permits, inspections and property records',
+    url:'https://eservices.barrie.ca/',urlT:'Open the APLI portal',
+    url2:'https://www.barrie.ca/services-payments/permits-licences-applications/building-permit-records-request',url2T:'Request permit records'},
+  milton:{name:'Milton',status:'ARU registration process',
+    steps:['Search the permit history.','Confirm the ARU registration.','Verify the compliance certificate.'],
+    dept:'Building Division',phone:'905-878-7252 ext. 2397',email:'',src:'Milton Additional Residential Units program'},
+  'halton hills':{name:'Halton Hills',status:'Manual verification',
+    steps:['Search the building permits.','Request ARU confirmation from Building Services.'],
+    dept:'Building Services',phone:'905-873-2600',email:'building@haltonhills.ca',src:'Halton Hills Building Services'},
+  pickering:{name:'Pickering',status:'Manual verification',
+    steps:['Search the building permit records.','Check for accessory apartment or secondary suite approvals.'],
+    dept:'Building Services',phone:'905-420-4631',email:'buildingservices@pickering.ca',src:'Pickering Building Services'},
+  whitby:{name:'Whitby',status:'Manual verification',
+    steps:['Search the permit records.','Confirm the registered second unit approval.'],
+    dept:'Building Services',phone:'905-430-4305',email:'building@whitby.ca',src:'Whitby Building Services'},
+  markham:{name:'Markham',status:'Manual verification',
+    steps:['Search the building records.','Check for secondary suite permits.','Request written confirmation.'],
+    dept:'Building Standards',phone:'905-475-4858',email:'buildingstandards@markham.ca',src:'Markham Building Standards'},
+  'richmond hill':{name:'Richmond Hill',status:'Manual verification',
+    steps:['Search the building permits.','Confirm the secondary unit approval.'],
+    dept:'Building Services',phone:'905-771-8810',email:'building@richmondhill.ca',src:'Richmond Hill Building Services'},
+  burlington:{name:'Burlington',status:'Manual verification',
+    steps:['Search the building permit records.','Confirm the accessory apartment approval.'],
+    dept:'Building Services',phone:'905-335-7731',email:'building@burlington.ca',src:'Burlington Building Services'},
+  caledon:{name:'Caledon',status:'Manual verification',
+    steps:['Search the ARU and building permits.','Confirm the additional residential unit approval.'],
+    dept:'Building Services',phone:'905-584-2272',email:'building@caledon.ca',src:'Caledon Building Services'},
+  oakville:{name:'Oakville',status:'Manual verification',
+    steps:['Search the building permits.','Check for secondary suite approvals.','Request written confirmation.'],
+    dept:'Building Services',phone:'905-845-6601',email:'buildingrequests@oakville.ca',src:'Oakville Building Services'},
+  ajax:{name:'Ajax',status:'Manual verification',
+    steps:['Search the permit records.','Confirm the legal second unit status.'],
+    dept:'Building Services',phone:'905-619-2529',email:'building@ajax.ca',src:'Ajax Building Services'},
+  kitchener:{name:'Kitchener',status:'Manual verification',
+    steps:['Search the building permits.','Check the additional dwelling unit approval.'],
+    dept:'Building Division',phone:'519-741-2426',email:'building@kitchener.ca',src:'Kitchener Building Division'},
+  waterloo:{name:'Waterloo',status:'Manual verification',
+    steps:['Search the building permits.','Confirm the secondary suite approval.'],
+    dept:'Building Services',phone:'519-747-8712',email:'building@waterloo.ca',src:'Waterloo Building Services'},
+  cambridge:{name:'Cambridge',status:'Manual verification',
+    steps:['Search the building permits.','Confirm the additional residential unit approval.'],
+    dept:'Building Division',phone:'519-740-4517',email:'building@cambridge.ca',src:'Cambridge Building Division'}
+};
+function bcHow(city){
+  var k=String(city||'').toLowerCase().trim();
+  if(BC_HOW[k]) return BC_HOW[k];
+  for(var n in BC_HOW){ if(k.indexOf(n)>=0) return BC_HOW[n]; }
+  return null;
+}
+/* One card, used both under a result and on its own when a coverage chip is
+   tapped. The copy button carries the whole thing, because the realtor is
+   usually pasting it to someone rather than reading it. */
+function bcHowCard(h){
+  if(!h) return '';
+  var steps=(h.steps||[]).map(function(x,i){ return kv('Step '+(i+1),x); }).join('');
+  var links=(h.url?linkBtn(h.urlT||'Open the registry',h.url):'')+(h.url2?linkBtn(h.url2T||'More',h.url2):'')
+    +(h.phone?telBtn(h.phone):'')+(h.email?mailBtn(h.email):'');
+  return '<div class="card"><div class="card-t">How to verify \u2014 '+esc(h.name)+'</div>'
+    +'<div class="card-s">'+esc(h.status)+'</div>'
+    +'<p class="seclbl">How to search it</p>'+steps
+    +'<p class="seclbl">Who to contact</p>'+kv('Department',h.dept)+kv('Phone',h.phone)+kv('Email',h.email)
+    +kv('Source',h.src)
+    +(links?'<div class="lnkrow">'+links+'</div>':'')
+    +'<button class="copy" id="bchowcp"><span>Copy steps</span></button></div>';
+}
+function bcHowText(h){
+  return h.name+' \u2014 '+h.status+'\n'
+    +(h.steps||[]).map(function(x,i){ return (i+1)+'. '+x; }).join('\n')
+    +'\n'+(h.dept||'')+(h.phone?' | '+h.phone:'')+(h.email?' | '+h.email:'')+(h.url?'\n'+h.url:'');
+}
+/* Paints into a given container and wires its copy button. The result screen and
+   the coverage list both use it, so the wiring lives in one place. */
+function bcPaintHow(id,city){
+  var el=$(id); if(!el) return;
+  var h=bcHow(city);
+  if(!h){ el.innerHTML=''; return; }
+  el.innerHTML=bcHowCard(h);
+  var b=el.querySelector('#bchowcp');
+  if(b) b.addEventListener('click',function(){ copyText(bcHowText(h)); var s=this.querySelector('span'),o=s.textContent; s.textContent='Copied'; setTimeout(function(){s.textContent=o;},1400); });
+}
 function loadBasement(){
-  $('content').innerHTML='<div class="fbar"><input id="bcaddr" placeholder="41 Fanshawe Cres, Brampton"><button class="gobtn" onclick="runBC()">Check</button></div><div class="chips" id="bcchips"></div><div id="bcHint" style="font-size:var(--fs-sm);color:var(--mute);margin:10px 2px"></div><div id="bcRes"></div><div id="bcCov" style="margin-top:22px"></div>';
+  $('content').innerHTML='<div class="fbar"><input id="bcaddr" placeholder="41 Fanshawe Cres, Brampton"><button class="gobtn" onclick="runBC()">Check</button></div><div class="chips" id="bcchips"></div><div id="bcHint" style="font-size:var(--fs-sm);color:var(--mute);margin:10px 2px"></div><div id="bcRes"></div><div id="bcHow"></div><div id="bcCov" style="margin-top:22px"></div>';
   var chips=['64 Abbey Rd, Brampton','55 Aberdeen St, Oshawa','606 Abana Rd, Mississauga'];
   $('bcchips').innerHTML=chips.map(function(c){return '<button class="citychip" data-a="'+esc(c)+'">'+esc(c)+'</button>';}).join('');
   $('bcchips').querySelectorAll('.citychip').forEach(function(b){ b.addEventListener('click',function(){ $('bcaddr').value=b.dataset.a; runBC(); }); });
   $('bcaddr').addEventListener('keydown',function(e){if(e.key==='Enter')runBC();});
-  call('basementcoverage').then(function(r){ if(!r||!r.tiers)return; $('bcCov').innerHTML='<div class="sec-h">What\u2019s covered</div>'+r.tiers.map(function(t){ return '<div class="card"><div class="card-s" style="font-weight:600;color:var(--ink2)">'+esc(t.label)+'</div><div class="lnkrow">'+(t.cities||[]).map(function(c){return '<span class="tagchip">'+esc(c)+'</span>';}).join('')+'</div></div>'; }).join(''); });
+  call('basementcoverage').then(function(r){ if(!r||!r.tiers)return; $('bcCov').innerHTML='<div class="sec-h">What\u2019s covered</div><div class="card-s" style="margin:0 2px 10px">Tap a city to see how to search it manually, and who to call.</div>'+r.tiers.map(function(t){ return '<div class="card"><div class="card-s" style="font-weight:600;color:var(--ink2)">'+esc(t.label)+'</div><div class="lnkrow">'+(t.cities||[]).map(function(c){return '<button class="tagchip" data-c="'+esc(String(c).toLowerCase())+'">'+esc(c)+'</button>';}).join('')+'</div></div>'; }).join('');
+    /* the same panel the search fills, so a city with no registry still tells
+       the realtor what to do about it */
+    $('bcCov').querySelectorAll('.tagchip[data-c]').forEach(function(b){ b.addEventListener('click',function(){ bcPaintHow('bcHow',b.dataset.c); window.scrollTo(0,0); }); });
+  });
 }
 var BCC={pine:'c-pine',ochre:'c-ochre',grey:'c-grey',blue:'c-blue',rust:'c-rust'};
 function runBC(){
   var v=($('bcaddr').value||'').trim(); if(v.length<4){ $('bcHint').textContent='Enter a full address including the city.'; return; }
-  $('bcHint').textContent='Checking the municipal record…'; $('bcRes').innerHTML='';
+  $('bcHint').textContent='Checking the municipal record…'; $('bcRes').innerHTML=''; if($('bcHow')) $('bcHow').innerHTML='';
   call('basement',{addr:v}).then(function(r){
     if(!r||!r.ok){ $('bcHint').textContent=(r&&r.error)||'Could not check that address.'; return; }
     $('bcHint').textContent='';
@@ -883,7 +1000,77 @@ function runBC(){
     var sayPlain=String(r.say||'').replace(/<\/?em>/g,'');
     $('bcRes').innerHTML='<div class="card"><span class="stamp '+cls+'"><b>'+esc(r.statusLabel||'')+'</b></span><div class="card-t" style="margin-top:11px">'+esc(v)+'</div><p class="seclbl">Say this to your client</p><div class="say">'+(r.say||'')+'</div><button class="copy" id="bccp"><span>Copy wording</span></button>'+(nexts?'<p class="seclbl">Your next step</p><ul class="next">'+nexts+'</ul>':'')+(rows?'<details class="ev"><summary>Where this came from '+ico('chev',12)+'</summary>'+rows+'</details>':'')+'<div class="warn"><b>Never describe a unit as legal off this screen.</b> This reports a municipal record on the date shown — not a legal ruling.</div></div>';
     $('bccp').addEventListener('click',function(){ copyText(sayPlain); var s=this.querySelector('span'),o=s.textContent; s.textContent='Copied'; setTimeout(function(){s.textContent=o;},1400); });
+    bcPaintHow('bcHow', r.city||v);
   }).catch(fail);
+}
+
+/* ===================== PROPERTY TAX =====================
+   The rate table behind Home Expenses, on its own screen. Reads `taxrates`,
+   which resolves 2026 with a 2025 fallback in the sheet itself, so nothing here
+   decides which year to serve. One rate per city: the community-level areas
+   Hamilton and Chatham-Kent carry are real, but a realtor standing in a kitchen
+   wants the number, not a menu. Painting this also corrects the calculator's
+   table, so opening either screen warms the other. */
+var PT_ROWS=[], ptQ='', ptScope='all';
+/* The 25 GTA municipalities plus Hamilton — the ones the team is asked about
+   daily. Everything else is one tap away behind All. */
+var PT_GTA=['Toronto','Mississauga','Brampton','Caledon','Vaughan','Markham','Richmond Hill','Newmarket','Aurora','King','East Gwillimbury','Whitchurch-Stouffville','Georgina','Oshawa','Whitby','Ajax','Pickering','Clarington','Uxbridge','Scugog','Brock','Oakville','Burlington','Milton','Halton Hills','Hamilton'];
+function ptPct(n){ return (n==null||!isFinite(n))?'\u2014':Number(n).toFixed(4)+'%'; }
+function ptTone(r){ return !r.quotable?'grey':((r.status==='VERIFIED'&&!r.fallback)?'pine':'ochre'); }
+function loadPropertyTax(){
+  cachedCall('taxrates').then(function(d){
+    if(!d||d.ok===false){ $('content').innerHTML='<div class="err">'+esc((d&&d.error)||'Could not read the rate table.')+'</div>'; return; }
+    PT_ROWS=d.rows||[];
+    if(AKX.applyLiveRates) AKX.applyLiveRates(d);
+    $('content').innerHTML=stamp(d)
+      +'<div class="card wide"><div class="card-s">Ontario residential rates, read from the rate workbook. Where a city has not published a 2026 rate the 2025 one is shown and labelled. The 0.153% education levy is province-wide and is already inside every combined rate.</div></div>'
+      +'<div class="seg" id="ptScope"><button class="on" data-s="all">All</button><button data-s="gta">GTA</button><button data-s="check">Needs checking</button></div>'
+      +'<div class="fbar"><input id="ptq" type="search" placeholder="Filter cities\u2026" autocomplete="off" value="'+esc(ptQ)+'"></div>'
+      +'<div id="ptCount" class="card-s" style="margin:0 2px 10px"></div>'
+      +'<div id="ptList"></div>';
+    $('ptScope').querySelectorAll('button').forEach(function(b){ b.addEventListener('click',function(){
+      if(b.dataset.s===ptScope) return;
+      ptScope=b.dataset.s;
+      $('ptScope').querySelectorAll('button').forEach(function(x){ x.classList.toggle('on',x===b); });
+      paintPropertyTax();
+    }); });
+    $('ptq').addEventListener('input',function(){ ptQ=this.value; paintPropertyTax(); });
+    paintPropertyTax();
+  }).catch(fail);
+}
+/* The combined rate sits on the card because it is the billed number. The split
+   is behind the details, because it is context and — since every by-law decides
+   for itself which components sit on the municipal line — it is not comparable
+   between cities. */
+function paintPropertyTax(){
+  var q=String(ptQ||'').trim().toLowerCase();
+  var rows=PT_ROWS.filter(function(r){
+    if(ptScope==='gta'&&PT_GTA.indexOf(r.mun)<0) return false;
+    if(ptScope==='check'&&r.quotable&&r.status==='VERIFIED'&&!r.fallback) return false;
+    if(q&&(r.mun+' '+(r.region||'')).toLowerCase().indexOf(q)<0) return false;
+    return true;
+  });
+  $('ptCount').textContent=pageCount('propertytax',rows.length,PT_ROWS.length,'city','cities');
+  if(!rows.length){ $('ptList').innerHTML='<div class="empty">No city matches that.</div>'; return; }
+  $('ptList').innerHTML=rows.map(function(r){
+    var label=!r.quotable?'No published rate':(r.status+(r.fallback?' \u00b7 '+r.year:''));
+    return '<div class="card"><div class="card-t">'+esc(r.mun)+'</div>'
+      +'<div class="card-s">'+esc(r.region||'Single tier')+(r.area?' \u00b7 '+esc(r.area):'')+'</div>'
+      +'<div class="lnkrow" style="margin-top:0.5rem"><span class="pill '+ptTone(r)+'">'+ptPct(r.rate)+'</span>'
+        +'<span class="tagchip">'+esc(label)+'</span>'
+        +(r.per1m==null?'':'<span class="tagchip">$'+Number(r.per1m).toLocaleString('en-CA')+' on $1M</span>')+'</div>'
+      +(r.fallback?'<div class="warn" style="background:var(--ochre-soft);border-color:var(--ochre);color:var(--ochre)">No 2026 rate published yet, so this is the '+esc(String(r.year))+' rate. Say so if you quote it.</div>':'')
+      +(!r.quotable?'<div class="warn" style="background:var(--rust-soft);border-color:var(--rust);color:var(--rust)">No official rate exists for either year. Don\u2019t quote a figure for this city.</div>':'')
+      +'<details class="ev"><summary>The breakdown '+ico('chev',12)+'</summary>'
+        +kv('Municipal',ptPct(r.munRate))
+        +(r.utRate==null?'':kv('Regional',ptPct(r.utRate)))
+        +(r.edu==null?'':kv('Education',ptPct(r.edu)))
+        +(r.levy==null?'':kv('Special levy',ptPct(r.levy)))
+        +kv('2026',ptPct(r.r26))+kv('2025',ptPct(r.r25))
+        +kv('Last verified',r.verified)+kv('Source',r.srcType)
+        +(r.url?'<div class="lnkrow">'+linkBtn('Municipal source',r.url)+'</div>':'')
+      +'</details></div>';
+  }).join('');
 }
 
 /* ===================== HOME EXPENSES =====================
@@ -1120,6 +1307,58 @@ const MUNICIPALITIES = [
 const BY_NAME = MUNICIPALITIES.reduce((m, x) => { m[x.name] = x; return m; }, {});
 
  
+
+/* ---- live rates ---------------------------------------------------------
+   The table above is the offline fallback, kept so the calculator still works
+   when the sheet is unreachable. `taxrates` is the source of truth, and this
+   overwrites each record in place with the published figure, adding any city
+   the list does not carry. Nothing here removes a city, a rate or an
+   effectiveOnPrice figure — a failed fetch leaves the table exactly as it was.
+
+   The regional split is deliberately taken per municipality rather than from
+   UPPER_TIER: every by-law decides for itself which components sit on the
+   municipal line, so Peel reads 0.562449 in Brampton and 0.346430 in Caledon.
+   The combined rate is the billed number; the split is display only. */
+const REGION_KEY = { Peel:"peel", Halton:"halton", York:"york", Durham:"durham",
+  Niagara:"niagara", Waterloo:"waterloo", Simcoe:"simcoe" };
+const LIVE_ALIAS = { "Greater Sudbury":"Sudbury" };
+let RATE_STAMP = "";
+
+function applyLiveRates(payload) {
+  if (!payload || payload.ok === false || !payload.rows) return false;
+  let n = 0;
+  payload.rows.forEach((r) => {
+    const name = LIVE_ALIAS[r.mun] || r.mun;
+    let m = BY_NAME[name];
+    if (!m) {
+      m = { name, region: REGION_KEY[r.region] || "none", lowerTier: 0, total: null,
+            effectiveOnPrice: 0, confidence: "estimate", source: null, verifyAt: null };
+      MUNICIPALITIES.push(m);
+      BY_NAME[name] = m;
+    }
+    if (r.munRate != null) m.lowerTier = r.munRate;
+    m.upperTierRate = r.utRate == null ? 0 : r.utRate;
+    m.regionLabel = r.region || "Single tier";
+    if (r.rate != null) m.total = r.rate;
+    m.educationRate = r.edu == null ? EDUCATION_RATE : r.edu;
+    m.specialLevy = r.levy == null ? 0 : r.levy;
+    m.year = r.year; m.fallback = !!r.fallback; m.quotable = !!r.quotable;
+    m.status = r.status; m.verified = r.verified || ""; m.rateArea = r.area || "";
+    m.confidence = (r.quotable && r.status === "VERIFIED" && !r.fallback) ? "confirmed" : "estimate";
+    if (r.srcType) m.source = r.srcType;
+    if (r.url) m.verifyAt = r.url;
+    /* Only for a city the offline table never had: this is a share of the
+       PURCHASE price for the pre-construction estimate, not a tax rate, and the
+       tuned figures above are better than any formula. 0.6 is roughly the GTA
+       assessment-to-price ratio. */
+    if (!m.effectiveOnPrice && r.rate != null) m.effectiveOnPrice = Number((r.rate * 0.6).toFixed(2));
+    n++;
+  });
+  MUNICIPALITIES.sort((a, b) => (a.name < b.name ? -1 : 1));
+  RATE_STAMP = payload.updated || "";
+  return n > 0;
+}
+
 const municipalityNames = () =>
   MUNICIPALITIES.filter((x) => !x.hidden).map((x) => x.name);
 
@@ -1129,19 +1368,29 @@ function municipalRate(name) {
   const m = BY_NAME[name];
   if (!m) return null;
   const region = UPPER_TIER[m.region] || UPPER_TIER.none;
-  const summed = m.lowerTier + region.rate + EDUCATION_RATE;
+  // the workbook's own figures win; the shared constants are the fallback
+  const utRate = typeof m.upperTierRate === "number" ? m.upperTierRate : region.rate;
+  const eduRate = typeof m.educationRate === "number" ? m.educationRate : EDUCATION_RATE;
+  const summed = m.lowerTier + utRate + eduRate + (m.specialLevy || 0);
   const usePublished = typeof m.total === "number";
 
   
   let confidence = m.confidence;
-  if (!usePublished && region.confidence === "estimate") confidence = "estimate";
+  if (!usePublished && typeof m.upperTierRate !== "number"
+      && region.confidence === "estimate") confidence = "estimate";
 
   return {
     rate: usePublished ? m.total : summed,
     lowerTier: m.lowerTier,
-    upperTier: region.rate,
-    education: EDUCATION_RATE,
-    regionName: region.name,
+    upperTier: utRate,
+    education: eduRate,
+    specialLevy: m.specialLevy || 0,
+    regionName: m.regionLabel || region.name,
+    year: m.year || null,
+    fallback: !!m.fallback,
+    quotable: m.quotable !== false,
+    status: m.status || "",
+    verified: m.verified || "",
     effectiveOnPrice: m.effectiveOnPrice,
     confidence,
     source: m.source,
@@ -1447,7 +1696,8 @@ function exportRateTableCsv() {
   const esc = (v) => `"${String(v).replace(/"/g, '""')}"`;
   return [cols.join(","), ...rows.map((r) => cols.map((c) => esc(r[c])).join(","))].join("\n");
 }
-return { EDUCATION_RATE, UPPER_TIER, MUNICIPALITIES, INSURABLE_CAP,
+return { EDUCATION_RATE, UPPER_TIER, MUNICIPALITIES, INSURABLE_CAP, applyLiveRates,
+  rateStamp: () => RATE_STAMP,
   municipalityNames, municipalRate, minDownPayment, insurancePremiumRate,
   monthlyRate, mortgagePayment, buildMortgage, amortizationSchedule,
   propertyTaxAnnual, computeCarryingCost, DEFAULT_INPUT, cad, summaryText,
@@ -1477,16 +1727,25 @@ function exField(key,label,unit,val){
   return '<label class="exrow"><span class="exlbl">'+esc(label)+(unit?' <i>'+esc(unit)+'</i>':'')+'</span>'
     +'<input id="ex_'+key+'" inputmode="decimal" autocomplete="off" value="'+esc(String(val))+'"></label>';
 }
+/* The form opens empty. AKX.DEFAULT_INPUT still carries the sample figures the
+   calculation core needs for any caller that omits a field, but seeding the
+   screen from them put $900,000, $180,000 down and a set of invented utility
+   costs in front of the realtor — numbers that look like a quote and are not.
+   Every money field starts blank, so what shows is only what was typed.
+
+   Two are not zeroed on purpose: amortization, because it is a term the realtor
+   picks rather than a cost and a 0-year mortgage has no answer; and the
+   municipality, because the tax rate has to resolve against something. */
+var EX_BLANK={
+  price:'',downPayment:'',ratePct:'',amortYears:25,
+  municipality:'Brampton',taxMode:'price',taxAmount:'',assessedValue:'',
+  firstTimeBuyer:false,newBuild:false,maintenanceReservePct:'',
+  insurance:'',hydro:'',gas:'',water:'',internet:'',
+  waterHeaterRental:'',hvacRental:'',condoFee:'',
+  potl:'',alarm:'',lawnSnow:'',other:''
+};
 function loadExpenses(){
-  var d=AKX.DEFAULT_INPUT;
-  EX_STATE=EX_STATE||{
-    price:d.price,downPayment:d.downPayment,ratePct:d.ratePct,amortYears:d.amortYears,
-    municipality:d.municipality,taxMode:'price',taxAmount:d.taxAmount,assessedValue:d.assessedValue,
-    firstTimeBuyer:false,newBuild:false,maintenanceReservePct:d.maintenanceReservePct,
-    insurance:d.insurance,hydro:d.hydro,gas:d.gas,water:d.water,internet:d.internet,
-    waterHeaterRental:d.waterHeaterRental,hvacRental:d.hvacRental,condoFee:d.condoFee,
-    potl:d.potl,alarm:d.alarm,lawnSnow:d.lawnSnow,other:d.other
-  };
+  EX_STATE=EX_STATE||(function(){ var o={}; for(var k in EX_BLANK) o[k]=EX_BLANK[k]; return o; })();
   var s=EX_STATE;
   $('content').innerHTML=
      '<div class="card wide"><div class="card-s">A full monthly carrying cost — mortgage with CMHC insurance, property tax, utilities and a maintenance reserve. Same calculation as the web version.</div></div>'
@@ -1509,6 +1768,7 @@ function loadExpenses(){
     +'</div></details>'
     +'<div id="exOut"></div>';
   paintTaxExtra();
+  exLoadRates();
   /* #ex_taxExtra is re-rendered on every mode change and wires its own field,
      so skip it here — otherwise that input ends up with two input listeners */
   $('content').querySelectorAll('#content input, #content select').forEach(function(el){
@@ -1519,6 +1779,20 @@ function loadExpenses(){
     });
   });
   calcEx();
+}
+/* The rates come from the workbook, not from the table inside AKX. The screen
+   is painted first and corrected when the fetch lands, so a slow sheet never
+   holds up the calculator and an unreachable one changes nothing. */
+function exLoadRates(){
+  cachedCall('taxrates').then(function(d){
+    if(!d||d.ok===false||!AKX.applyLiveRates(d)) return;
+    var sel=$('ex_muni'); if(!sel) return;                 // screen left before it landed
+    var keep=sel.value;
+    sel.innerHTML=AKX.municipalityNames().map(function(n){ return '<option'+(n===keep?' selected':'')+'>'+esc(n)+'</option>'; }).join('');
+    sel.value=keep||EX_STATE.municipality;
+    if(!sel.value){ sel.value='Brampton'; EX_STATE.municipality='Brampton'; }
+    calcEx();
+  }).catch(function(){});
 }
 function paintTaxExtra(){
   var s=EX_STATE, h='';
@@ -1563,7 +1837,9 @@ function calcEx(){
   var t=r.tax, info=t.info;
   h+='<div class="sec-h">Property tax</div><div class="card">'
     +kv('Annual',exMoney(t.annual))+kv('Basis',t.basis)
-    +(info?kv('Combined rate',info.rate.toFixed(4)+'%'):'')
+    +(info?kv('Combined rate',info.rate.toFixed(4)+'%'+(info.year?' \u00b7 '+info.year:'')):'')
+    +(info&&info.fallback?kv('Note','No 2026 rate published yet, so the '+info.year+' rate is used.'):'')
+    +(info&&info.verified?kv('Last verified',info.verified):'')
     +(info&&info.confidence!=='confirmed'
         ? '<div class="warn" style="background:var(--ochre-soft);border-color:var(--ochre);color:var(--ochre)">This '+esc(s.municipality)+' rate is an estimate, not a confirmed by-law figure. Verify it before showing a client.'
           +(info.verifyAt?' '+linkBtn('Check the city',info.verifyAt):'')+'</div>'
