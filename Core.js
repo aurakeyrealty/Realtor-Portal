@@ -104,7 +104,8 @@ var ALLOW = {
     'MILTON', 'MISSISSAUGA', 'MARKHAM', 'NEWMARKET', 'OAKVILLE', 'ORANGEVILLE',
     'OSHAWA', 'OTTAWA', 'PARIS', 'PICKERING', 'RICHMOND HILL', 'SCARBOROUGH',
     'STAYNER', 'STOUFFVILLE', 'WELLAND', 'VAUGHAN', 'WHITBY', 'WOODSTOCK',
-    'CALGARY', 'DUBAI'
+    'CALGARY', 'DUBAI',
+    'Property Tax Rates', 'Active Rates'
   ],
   deals: ['Active Listings', 'Websites'],
   onboarding: []
@@ -231,6 +232,7 @@ function warmCache() {
   try { getHome_(); } catch (e) {}          // pulls the search index, focus and contacts
   try { getCities_(); } catch (e) {}
   try { getCityCounts_(); } catch (e) {}
+  try { getTaxRates_(); } catch (e) {}       // Property Tax + the Expenses rate table
   __FRESH = false;
 }
 function installWarmTrigger() {
@@ -408,6 +410,7 @@ function app(action, p) {
     case 'ltb':           return getLTB_(p.q || p.query, p.offset);
     case 'crime':         return getCrimeCity_(p.slug || p.city);
     case 'crimecities':   return getCrimeCities_();
+    case 'taxrates':      return getTaxRates_();
     case 'fsboards':      return { ok: true, boards: fsBoards_() };
     case 'fssuggest':     return { ok: true, items: fsSuggest_(p.board, p.q || p.text) };
     case 'fslookup':      return fsLookup_(p.board, p.addr || p.address, p.num || p.houseNumber);
